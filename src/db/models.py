@@ -2,8 +2,7 @@ from datetime import date, datetime
 from enum import Enum
 
 from pydantic import BaseModel
-from sqlmodel import Field, SQLModel
-
+from sqlmodel import Field, Relationship, SQLModel
 
 
 class ParcelClass(Enum):
@@ -22,18 +21,37 @@ class SaleType(Enum):
     LAND_AND_BUILDING = "LAND AND BUILDING"
     MOBILE_HOME = "MOBILE HOME"
 
+class ParcelBase(SQLModel):
+    # id: int | None = Field(default=None, primary_key=True, index=True)
+    parcel_id: str = Field(description="Parcel Identification Number", primary_key=True, index=True)
+    parcel_location: str = Field(description="Parcel Location")
+    parcel_class: ParcelClass = Field(description="Parcel Class")
+    acres: float = Field(description="Parcel Acreage")
+    # owner: str = Field(description="Owner Name")
 
-class Transaction(SQLModel, table=True):
-    """Representation of an item"""
+    latitude: float | None = Field(default=None, description="Geographic Latitude")
+    longitude: float | None = Field(default=None, description="Geographic Longitude")
 
+
+class Parcel(ParcelBase, table=True):
+
+    # Defines the relationship back to Transaction, referencing the class by string.
+    transactions: list["Transaction"] = Relationship(back_populates="parcel")
+
+
+# A simple model just for the nested lat/long
+class ParcelResponse(ParcelBase):
+    ...
+
+class TransactionBase(SQLModel):
     # Years 2001-2002 don't have the fields that are marked as optional (beside the id)
     id: int | None = Field(default=None, primary_key=True, index=True)
-    parcel_id: str = Field(description="Parcel Identification Number")
+    parcel_id: str = Field(description="Parcel Identification Number", foreign_key="parcel.parcel_id")
     conv_num: int | None = Field(description="Conveyance Number")
-    sale_date: date = Field(description="Sale Date")
-    sale_price: float = Field(description="Sale Price")
-    old_owner: str = Field(description="Old Owner Name")
-    new_owner: str = Field(description="New Owner Name")
+    sale_date: date = Field(description="Sale Date", index=True)
+    sale_price: float = Field(description="Sale Price", index=True)
+    old_owner: str = Field(description="Old Owner Name", index=True)
+    new_owner: str = Field(description="New Owner Name", index=True)
     parcel_location: str = Field(description="Parcel Location")
     mailing_name: str = Field(description="Mailing Name")
     # # mailing_name2: str = Field(description="Mailing Name 2")
@@ -50,15 +68,18 @@ class Transaction(SQLModel, table=True):
     sale_validity: str | None = Field(description="Sale Validity")
     # # dayton_credit
     deed_reference: str | None = Field(description="Deed Reference")
-    neighborhood: str | None = Field(description="Neighborhood Number")
+    neighborhood: str | None = Field(description="Neighborhood Number", index=True)
 
-class Parcel(SQLModel, table=True):
-    # id: int | None = Field(default=None, primary_key=True, index=True)
-    parcel_id: str = Field(description="Parcel Identification Number", primary_key=True, index=True)
-    parcel_location: str = Field(description="Parcel Location")
-    parcel_class: ParcelClass = Field(description="Parcel Class")
-    acres: float = Field(description="Parcel Acreage")
-    # owner: str = Field(description="Owner Name")
+
+class Transaction(TransactionBase, table=True):
+    """Representation of an item"""
+
+    # Define the relationship
+    parcel: Parcel = Relationship(back_populates="transactions")
+
+
+class TransactionResponse(TransactionBase):
+    parcel: ParcelResponse | None = None
 
 
 class DataFile(SQLModel, table=True):
@@ -72,6 +93,13 @@ class ParcelListModel(BaseModel):
     count: int
     entities: list[Parcel]
 
-class TransactionListModel(BaseModel):
+
+class TransactionListModel(SQLModel):
     count: int
-    entities: list[Transaction]
+    entities: list[TransactionResponse]
+
+class OwnerStats(BaseModel):
+    owner_name: str
+    transaction_count: int
+    total_spent: float
+    avg_price: float

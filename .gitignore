@@ -1,0 +1,4 @@
+*.code-workspace
+data
+database.db
+**/__pycache__/*

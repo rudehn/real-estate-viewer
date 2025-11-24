@@ -1,4 +1,4 @@
-import requests
+import httpx
 import zipfile
 from io import BytesIO
 from datetime import datetime
@@ -20,7 +20,7 @@ def retrieve_yearly_data():
         year -=1
         full_url = f"{base_url}/{zip_name}"
         print(f"Fetching {full_url}")
-        response = requests.get(full_url)
+        response = httpx.get(full_url)
         if response.status_code >= 400:
             print(f"Skipping {full_url}")
             continue

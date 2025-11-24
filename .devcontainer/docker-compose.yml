@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # Mount the current folder to /workspace in the container
+      - ../:/workspace:cached
+    # Keep the container running
+    command: sleep infinity
+    
+    # Forward ports for FastAPI (8000) and Streamlit (8501)
+    ports:
+      - "8000:8000"
+      - "8501:8501"
+    
+    # Set environment variables
+    environment:
+      - PYTHONPATH=/workspace

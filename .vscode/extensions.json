@@ -1,0 +1,13 @@
+{
+  // VS Code will prompt users to install extensions listed in this array.
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "eamodio.gitlens",
+    "tamasfe.even-better-toml",
+    "ms-vscode-remote.remote-containers",
+    "charliermarsh.ruff",
+    "ms-azuretools.vscode-docker",
+    "matangover.mypy",
+  ]
+}

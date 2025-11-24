@@ -1,0 +1,32 @@
+{
+  "name": "Real Estate Data Stack",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace",
+
+  // Configure VS Code extensions to install automatically
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "tamasfe.even-better-toml",
+        "charliermarsh.ruff",
+        "eamodio.gitlens",
+        "matangover.mypy",
+        "qwtel.sqlite-viewer" 
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
+        "python.terminal.activateEnvironment": true
+      }
+    }
+  },
+
+  // Commands to run after the container creates
+  // 1. Safe git config
+  // 2. Sync dependencies using uv (Creates the .venv inside linux)
+  "postCreateCommand": "git config --global --add safe.directory /workspace && uv sync",
+
+  "remoteUser": "vscode"
+}
