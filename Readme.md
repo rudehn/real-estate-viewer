@@ -12,3 +12,7 @@ alembic init -t async migrations
 - Update migrations.env.py: import db.models & set target_metadata = SQLModel.metadata
 alembic revision --autogenerate -m "Add latitude and longitude to parcels"
 alembic upgrade head
+
+# Dashboard Example
+
+![alt text](<dashboard-example.png>)
