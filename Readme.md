@@ -1,11 +1,16 @@
-Start up the devcontainer
+# Real Estate Viewer
+This project provides a basic UI to view real estate transactions in part of Ohio. Public data is scraped, processed & made available via an api.
 
+## Getting Started
+Start up the devcontainer and run these commands
+
+```
 uvicorn main:app --app-dir src --reload --host 0.0.0.0
 
 streamlit run src/dashboard.py
+```
 
-
-# Database revisions
+## Database revisions
 
 alembic init -t async migrations
 - Update alembic.ini: set sqlalchemy.url = sqlite+aiosqlite:///./database.db
