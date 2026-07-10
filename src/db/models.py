@@ -197,6 +197,55 @@ class AcquisitionWave(BaseModel):
     total_spent: float
 
 
+class RelatedOwner(BaseModel):
+    owner_name: str
+    shared_address: str
+    transaction_count: int
+
+
+class OwnerYearActivity(BaseModel):
+    year: int
+    buy_count: int
+    sell_count: int
+    total_spent: float
+    total_received: float
+
+
+class OwnerProfile(BaseModel):
+    owner_name: str
+    first_activity: date | None
+    last_activity: date | None
+    total_buys: int
+    total_sells: int
+    median_hold_days: float | None
+    activity: list[OwnerYearActivity]
+    related_owners: list[RelatedOwner]
+
+
+class CompSale(BaseModel):
+    parcel_id: str
+    parcel_location: str
+    sale_date: date
+    sale_price: float
+    acres: float
+
+
+class ParcelComps(BaseModel):
+    neighborhood: str | None
+    parcel_class: ParcelClass | None
+    median_price: float | None
+    comps: list[CompSale]
+
+
+class DataHealth(BaseModel):
+    total_transactions: int
+    total_parcels: int
+    latest_sale_date: date | None
+    last_ingest_at: datetime | None
+    geocoded_pct: float
+    market_sale_pct: float
+
+
 class MarketStatsBucket(BaseModel):
     period: str
     period_start: date

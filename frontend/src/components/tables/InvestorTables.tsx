@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { OwnerLink } from "@/components/OwnerLink";
 import { formatCurrency, formatCurrencyFull, formatDate } from "@/lib/utils/formatters";
 import type { NetSellerStats, AcquisitionWave, OwnerStats } from "@/lib/types/api";
 
@@ -31,7 +32,9 @@ export function NetSellersTable({ data }: NetSellersProps) {
             <tbody>
               {data.map((row) => (
                 <tr key={row.owner_name} className="border-b hover:bg-muted/30 transition-colors">
-                  <td className="px-3 py-1.5 max-w-[200px] truncate font-medium">{row.owner_name}</td>
+                  <td className="px-3 py-1.5 max-w-[200px] truncate font-medium">
+                    <OwnerLink name={row.owner_name} />
+                  </td>
                   <td className="px-3 py-1.5 tabular-nums">{row.buy_count}</td>
                   <td className="px-3 py-1.5 tabular-nums">{row.sell_count}</td>
                   <td className="px-3 py-1.5">
@@ -73,7 +76,9 @@ export function AcquisitionWavesTable({ data }: WavesProps) {
             <tbody>
               {data.map((row, i) => (
                 <tr key={i} className="border-b hover:bg-muted/30 transition-colors">
-                  <td className="px-3 py-1.5 max-w-[180px] truncate font-medium">{row.owner_name}</td>
+                  <td className="px-3 py-1.5 max-w-[180px] truncate font-medium">
+                    <OwnerLink name={row.owner_name} />
+                  </td>
                   <td className="px-3 py-1.5 whitespace-nowrap">{formatDate(row.window_start)}</td>
                   <td className="px-3 py-1.5 whitespace-nowrap">{formatDate(row.window_end)}</td>
                   <td className="px-3 py-1.5">
@@ -122,7 +127,9 @@ export function AbsenteeOwnersTable({ data }: AbsenteeProps) {
             <tbody>
               {data.map((row) => (
                 <tr key={row.owner_name} className="border-b hover:bg-muted/30 transition-colors">
-                  <td className="px-3 py-1.5 max-w-[200px] truncate font-medium">{row.owner_name}</td>
+                  <td className="px-3 py-1.5 max-w-[200px] truncate font-medium">
+                    <OwnerLink name={row.owner_name} />
+                  </td>
                   <td className="px-3 py-1.5 tabular-nums">{row.transaction_count}</td>
                   <td className="px-3 py-1.5 tabular-nums">{formatCurrencyFull(row.total_spent)}</td>
                   <td className="px-3 py-1.5 tabular-nums">{formatCurrencyFull(row.avg_price)}</td>

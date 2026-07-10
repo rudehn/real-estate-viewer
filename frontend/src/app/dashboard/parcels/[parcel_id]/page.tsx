@@ -3,9 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { getParcelHistory } from "@/lib/api/parcels";
+import { useParcelComps } from "@/lib/hooks/useAnalytics";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { OwnerLink } from "@/components/OwnerLink";
 import { formatCurrencyFull, formatDate } from "@/lib/utils/formatters";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -44,11 +46,13 @@ function StreetView({
 
 export default function ParcelDetailPage() {
   const { parcel_id } = useParams<{ parcel_id: string }>();
+  const parcelId = decodeURIComponent(parcel_id);
 
   const { data: history = [], isLoading } = useQuery({
-    queryKey: ["parcel-history", parcel_id],
-    queryFn: () => getParcelHistory(decodeURIComponent(parcel_id)),
+    queryKey: ["parcel-history", parcelId],
+    queryFn: () => getParcelHistory(parcelId),
   });
+  const { data: comps } = useParcelComps(parcelId);
 
   const sorted = [...history].sort((a, b) => a.sale_date.localeCompare(b.sale_date));
   const latest = sorted[sorted.length - 1];
@@ -77,7 +81,7 @@ export default function ParcelDetailPage() {
           <CardContent className="flex flex-wrap gap-3 text-sm">
             <Badge variant="secondary">{latest.parcel_class}</Badge>
             <span>{latest.acres.toFixed(2)} acres</span>
-            <span className="text-muted-foreground">Parcel ID: {parcel_id}</span>
+            <span className="text-muted-foreground">Parcel ID: {parcelId}</span>
             {latest.neighborhood && (
               <span className="text-muted-foreground">Neighborhood: {latest.neighborhood}</span>
             )}
@@ -120,14 +124,64 @@ export default function ParcelDetailPage() {
                   formatter={(v: number) => [formatCurrencyFull(v), "Sale Price"]}
                 />
                 <Line
-                  type="monotone"
+                  type="linear"
                   dataKey="price"
                   stroke="hsl(var(--chart-1))"
                   strokeWidth={2}
                   dot={{ r: 4 }}
+                  isAnimationActive={false}
                 />
               </LineChart>
             </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Comparable sales */}
+      {comps && comps.comps.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">
+              Comparable Sales
+              <span className="text-muted-foreground font-normal ml-2 text-xs">
+                (recent market sales · same neighborhood &amp; class
+                {comps.median_price ? ` · median ${formatCurrencyFull(comps.median_price)}` : ""})
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/50 border-b">
+                <tr>
+                  {["Address", "Date", "Sale Price", "Acres"].map((h) => (
+                    <th key={h} className="text-left px-3 py-2 font-medium text-muted-foreground">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {comps.comps.map((c) => (
+                  <tr key={`${c.parcel_id}-${c.sale_date}`} className="border-b hover:bg-muted/30">
+                    <td className="px-3 py-1.5">
+                      <Link
+                        href={`/dashboard/parcels/${encodeURIComponent(c.parcel_id)}`}
+                        className="text-primary hover:underline"
+                      >
+                        {c.parcel_location}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-1.5 whitespace-nowrap">{formatDate(c.sale_date)}</td>
+                    <td className="px-3 py-1.5 font-medium tabular-nums">
+                      {formatCurrencyFull(c.sale_price)}
+                    </td>
+                    <td className="px-3 py-1.5 tabular-nums">
+                      {c.acres > 0 ? c.acres.toFixed(2) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </CardContent>
         </Card>
       )}
@@ -162,8 +216,12 @@ export default function ParcelDetailPage() {
                     <td className="px-3 py-1.5 font-medium tabular-nums">
                       {formatCurrencyFull(t.sale_price)}
                     </td>
-                    <td className="px-3 py-1.5 max-w-[120px] truncate">{t.new_owner}</td>
-                    <td className="px-3 py-1.5 max-w-[120px] truncate">{t.old_owner}</td>
+                    <td className="px-3 py-1.5 max-w-[120px] truncate">
+                      <OwnerLink name={t.new_owner} />
+                    </td>
+                    <td className="px-3 py-1.5 max-w-[120px] truncate">
+                      <OwnerLink name={t.old_owner} />
+                    </td>
                     <td className="px-3 py-1.5">
                       <Badge variant="outline" className="text-xs">{t.parcel_class}</Badge>
                     </td>

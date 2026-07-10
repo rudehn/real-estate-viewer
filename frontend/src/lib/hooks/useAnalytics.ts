@@ -6,6 +6,7 @@ import {
   getFlips, getDistressedSales, getTopOwners, getNetSellers,
   getNeighborhoodTrends, getStaleParcels, getAcquisitionWaves, getAbsenteeOwners,
   searchOwners, getOwnerHoldings, getMarketStats, type MarketStatsParams,
+  getOwnerProfile, getParcelComps, getDataHealth,
 } from "@/lib/api/analytics";
 import type { AnalyticsFilters } from "@/lib/types/api";
 
@@ -83,4 +84,26 @@ export function useOwnerHoldings(ownerName: string | null) {
     enabled: !!ownerName,
     staleTime: STALE,
   });
+}
+
+export function useOwnerProfile(ownerName: string | null) {
+  return useQuery({
+    queryKey: ["owner-profile", ownerName],
+    queryFn: () => getOwnerProfile(ownerName!),
+    enabled: !!ownerName,
+    staleTime: STALE,
+  });
+}
+
+export function useParcelComps(parcelId: string | null) {
+  return useQuery({
+    queryKey: ["parcel-comps", parcelId],
+    queryFn: () => getParcelComps(parcelId!),
+    enabled: !!parcelId,
+    staleTime: STALE,
+  });
+}
+
+export function useDataHealth() {
+  return useQuery({ queryKey: ["data-health"], queryFn: getDataHealth, staleTime: STALE });
 }

@@ -13,6 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { OwnerLink } from "@/components/OwnerLink";
 import { formatCurrencyFull, formatDate } from "@/lib/utils/formatters";
 import type { TransactionResponse } from "@/lib/types/api";
 import Link from "next/link";
@@ -56,11 +57,19 @@ const COLUMNS = [
   }),
   col.accessor("new_owner", {
     header: "Buyer",
-    cell: (i) => <span className="max-w-[140px] block truncate">{i.getValue()}</span>,
+    cell: (i) => (
+      <span className="max-w-[140px] block truncate">
+        <OwnerLink name={i.getValue()} />
+      </span>
+    ),
   }),
   col.accessor("old_owner", {
     header: "Seller",
-    cell: (i) => <span className="max-w-[140px] block truncate">{i.getValue()}</span>,
+    cell: (i) => (
+      <span className="max-w-[140px] block truncate">
+        <OwnerLink name={i.getValue()} />
+      </span>
+    ),
   }),
   col.accessor("neighborhood", {
     header: "Nbhd",

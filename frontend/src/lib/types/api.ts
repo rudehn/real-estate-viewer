@@ -175,6 +175,55 @@ export interface OwnerParcel {
   deal_size: number;
 }
 
+export interface RelatedOwner {
+  owner_name: string;
+  shared_address: string;
+  transaction_count: number;
+}
+
+export interface OwnerYearActivity {
+  year: number;
+  buy_count: number;
+  sell_count: number;
+  total_spent: number;
+  total_received: number;
+}
+
+export interface OwnerProfile {
+  owner_name: string;
+  first_activity: string | null;
+  last_activity: string | null;
+  total_buys: number;
+  total_sells: number;
+  median_hold_days: number | null;
+  activity: OwnerYearActivity[];
+  related_owners: RelatedOwner[];
+}
+
+export interface CompSale {
+  parcel_id: string;
+  parcel_location: string;
+  sale_date: string;
+  sale_price: number;
+  acres: number;
+}
+
+export interface ParcelComps {
+  neighborhood: string | null;
+  parcel_class: ParcelClass | null;
+  median_price: number | null;
+  comps: CompSale[];
+}
+
+export interface DataHealth {
+  total_transactions: number;
+  total_parcels: number;
+  latest_sale_date: string | null;
+  last_ingest_at: string | null;
+  geocoded_pct: number;
+  market_sale_pct: number;
+}
+
 export type Granularity = "month" | "quarter" | "year" | "all";
 
 export interface MarketStatsBucket {

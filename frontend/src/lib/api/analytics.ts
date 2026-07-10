@@ -4,7 +4,26 @@ import type {
   FlipResult, DistressedSale, OwnerHoldings, NetSellerStats,
   NeighborhoodTrend, StaleParcel, AcquisitionWave, OwnerParcel,
   Granularity, MarketStatsBucket, TransactionFilters,
+  OwnerProfile, ParcelComps, DataHealth,
 } from "@/lib/types/api";
+
+export async function getOwnerProfile(owner_name: string): Promise<OwnerProfile> {
+  return apiFetch<OwnerProfile>("/analytics/owner-profile", { owner_name });
+}
+
+export async function getParcelComps(
+  parcel_id: string,
+  params: { months?: number; limit?: number } = {}
+): Promise<ParcelComps> {
+  return apiFetch<ParcelComps>(
+    `/parcels/${encodeURIComponent(parcel_id)}/comps`,
+    params as Record<string, ParamValue>
+  );
+}
+
+export async function getDataHealth(): Promise<DataHealth> {
+  return apiFetch<DataHealth>("/health/data");
+}
 
 export interface MarketStatsParams extends TransactionFilters {
   granularity?: Granularity;

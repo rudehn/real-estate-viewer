@@ -3,10 +3,9 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useOwnerSearch, useOwnerHoldings } from "@/lib/hooks/useAnalytics";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatCurrencyFull, formatDate } from "@/lib/utils/formatters";
+import { HoldingsTable } from "@/components/tables/HoldingsTable";
+import { formatCurrencyFull } from "@/lib/utils/formatters";
 import type { OwnerParcel } from "@/lib/types/api";
 
 function useDebounce(value: string, delay: number) {
@@ -105,7 +104,15 @@ export default function OwnersPage() {
       {selectedOwner && (
         <>
           <div>
-            <h2 className="text-base font-medium mb-3">{selectedOwner}</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-medium">{selectedOwner}</h2>
+              <Link
+                href={`/dashboard/investors/${encodeURIComponent(selectedOwner)}`}
+                className="text-sm text-primary hover:underline"
+              >
+                View investor profile →
+              </Link>
+            </div>
             {holdingsLoading ? (
               <Skeleton className="h-20 rounded-lg" />
             ) : (
@@ -113,61 +120,11 @@ export default function OwnersPage() {
             )}
           </div>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Current Holdings</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {holdingsLoading ? (
-                <div className="p-4"><Skeleton className="h-40" /></div>
-              ) : holdings.length === 0 ? (
-                <p className="text-sm text-muted-foreground p-4">No current holdings found.</p>
-              ) : (
-                <table className="w-full text-xs">
-                  <thead className="bg-muted/50 border-b">
-                    <tr>
-                      {["Address", "Class", "Acres", "Last Sale", "Last Price", "Assessed"].map((h) => (
-                        <th key={h} className="text-left px-3 py-2 font-medium text-muted-foreground">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {holdings.map((p) => (
-                      <tr key={p.parcel_id} className="border-b hover:bg-muted/30">
-                        <td className="px-3 py-1.5">
-                          <Link
-                            href={`/dashboard/parcels/${encodeURIComponent(p.parcel_id)}`}
-                            className="text-primary hover:underline"
-                          >
-                            {p.parcel_location}
-                          </Link>
-                        </td>
-                        <td className="px-3 py-1.5">
-                          <Badge variant="outline" className="text-xs">{p.parcel_class}</Badge>
-                        </td>
-                        <td className="px-3 py-1.5 tabular-nums">{p.acres.toFixed(2)}</td>
-                        <td className="px-3 py-1.5 whitespace-nowrap">{formatDate(p.last_sale_date)}</td>
-                        <td className="px-3 py-1.5 tabular-nums whitespace-nowrap">
-                          {formatCurrencyFull(p.last_sale_price)}
-                          {p.deal_size > 1 && (
-                            <span
-                              className="ml-1 text-muted-foreground"
-                              title={`Acquired in one ${p.deal_size}-parcel deal; the price covers all ${p.deal_size} parcels.`}
-                            >
-                              ({p.deal_size}-parcel deal)
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-1.5 tabular-nums">
-                          {p.assessed_total ? formatCurrencyFull(p.assessed_total) : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </CardContent>
-          </Card>
+          {holdingsLoading ? (
+            <Skeleton className="h-[300px] rounded-lg" />
+          ) : (
+            <HoldingsTable holdings={holdings} />
+          )}
         </>
       )}
 

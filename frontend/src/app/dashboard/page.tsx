@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { useFilters } from "@/lib/hooks/useFilters";
-import { useMarketStats } from "@/lib/hooks/useAnalytics";
+import { useDataHealth, useMarketStats } from "@/lib/hooks/useAnalytics";
 import { KpiCard } from "@/components/kpi/KpiCard";
 import { MedianPriceTrend } from "@/components/charts/MedianPriceTrend";
 import { TransactionVolume } from "@/components/charts/TransactionVolume";
 import { SeasonalHeatmap } from "@/components/charts/SeasonalHeatmap";
-import { formatCurrency } from "@/lib/utils/formatters";
+import { formatCurrency, formatDate } from "@/lib/utils/formatters";
 import type { Granularity } from "@/lib/types/api";
 
 function isoDaysAgo(days: number): string {
@@ -56,6 +56,7 @@ export default function OverviewPage() {
   const all = totals?.[0];
   const cur = last12?.[0];
   const prev = prior12?.[0];
+  const { data: health } = useDataHealth();
 
   return (
     <div className="space-y-6">
@@ -112,6 +113,18 @@ export default function OverviewPage() {
 
       {/* Seasonal Heatmap */}
       <SeasonalHeatmap monthly={monthly} />
+
+      {/* Data health strip */}
+      {health && (
+        <p className="text-xs text-muted-foreground">
+          {health.total_transactions.toLocaleString()} recorded transfers on{" "}
+          {health.total_parcels.toLocaleString()} parcels
+          {" · "}latest sale {health.latest_sale_date ? formatDate(health.latest_sale_date) : "—"}
+          {" · "}last ingest {health.last_ingest_at ? formatDate(health.last_ingest_at.slice(0, 10)) : "—"}
+          {" · "}{health.geocoded_pct.toFixed(0)}% of parcels geocoded
+          {" · "}{health.market_sale_pct.toFixed(0)}% of transfers are arm&apos;s-length market sales
+        </p>
+      )}
     </div>
   );
 }

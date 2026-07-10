@@ -29,7 +29,8 @@ from db.models import (
     Parcel, ParcelListModel, ParcelClass,
     FlipResult, DistressedSale, OwnerHoldings, NetSellerStats,
     NeighborhoodTrend, StaleParcel, AcquisitionWave, OwnerParcel,
-    MarketStatsBucket,
+    MarketStatsBucket, OwnerProfile, OwnerYearActivity, RelatedOwner,
+    CompSale, ParcelComps, DataHealth,
 )
 from logging_config import get_logger, configure_logging
 
@@ -865,6 +866,221 @@ async def search_owners(
     )
     result = await session.exec(query)
     return result.all()
+
+
+# Mailing addresses shared by more owners than this are service addresses
+# (title companies, registered agents), not evidence of common ownership.
+_MAX_OWNERS_PER_ADDRESS = 12
+
+
+@app.get("/analytics/owner-profile", response_model=OwnerProfile)
+async def get_owner_profile(
+    owner_name: str = Query(..., description="Exact owner name"),
+    session: AsyncSession = Depends(get_session),
+):
+    """Activity history and related entities for one owner.
+
+    Aggregated in Python: even the county's biggest investors have a few
+    thousand transactions, and the deal grouping / buy-sell pairing logic
+    is much clearer here than in portable SQL.
+    """
+    buys = (
+        await session.exec(
+            select(Transaction.parcel_id, Transaction.sale_date, Transaction.sale_price)
+            .where(Transaction.new_owner == owner_name)
+        )
+    ).all()
+    sells = (
+        await session.exec(
+            select(Transaction.parcel_id, Transaction.sale_date, Transaction.sale_price)
+            .where(Transaction.old_owner == owner_name)
+        )
+    ).all()
+
+    # Yearly counts, with money totals counted once per deal: portfolio
+    # conveyances stamp the whole price on every parcel row.
+    years: dict[int, dict[str, float]] = {}
+
+    def bucket(year: int) -> dict[str, float]:
+        return years.setdefault(
+            year, {"buy_count": 0, "sell_count": 0, "total_spent": 0.0, "total_received": 0.0}
+        )
+
+    for role, rows, count_key, money_key in (
+        ("buy", buys, "buy_count", "total_spent"),
+        ("sell", sells, "sell_count", "total_received"),
+    ):
+        seen_deals: set[tuple] = set()
+        for parcel_id, sale_date, price in rows:
+            b = bucket(sale_date.year)
+            b[count_key] += 1
+            deal = (sale_date, price)
+            if deal not in seen_deals:
+                seen_deals.add(deal)
+                b[money_key] += price or 0.0
+
+    activity = [
+        OwnerYearActivity(year=y, **{k: v for k, v in stats.items()})
+        for y, stats in sorted(years.items())
+    ]
+
+    # Hold periods: pair each sale with the owner's latest prior purchase
+    # of the same parcel.
+    buys_by_parcel: dict[str, list] = {}
+    for parcel_id, sale_date, _ in buys:
+        buys_by_parcel.setdefault(parcel_id, []).append(sale_date)
+    hold_days: list[int] = []
+    for parcel_id, sell_date, _ in sells:
+        prior = [d for d in buys_by_parcel.get(parcel_id, []) if d < sell_date]
+        if prior:
+            hold_days.append((sell_date - max(prior)).days)
+    hold_days.sort()
+    median_hold = float(hold_days[len(hold_days) // 2]) if hold_days else None
+
+    # Related entities: other owners buying under the same mailing address.
+    addr_rows = (
+        await session.exec(
+            select(Transaction.mailing_address)
+            .where(Transaction.new_owner == owner_name)
+            .where(Transaction.mailing_address != "")
+            .distinct()
+        )
+    ).all()
+    related: list[RelatedOwner] = []
+    if addr_rows:
+        rows = (
+            await session.exec(
+                select(
+                    Transaction.new_owner,
+                    Transaction.mailing_address,
+                    func.count().label("cnt"),
+                )
+                .where(Transaction.mailing_address.in_(addr_rows))
+                .where(Transaction.new_owner != owner_name)
+                .group_by(Transaction.new_owner, Transaction.mailing_address)
+                .order_by(desc("cnt"))
+            )
+        ).all()
+        owners_per_addr: dict[str, int] = {}
+        for _, addr, _ in rows:
+            owners_per_addr[addr] = owners_per_addr.get(addr, 0) + 1
+        seen_names: set[str] = set()
+        for name, addr, cnt in rows:
+            if owners_per_addr[addr] > _MAX_OWNERS_PER_ADDRESS or name in seen_names:
+                continue
+            seen_names.add(name)
+            related.append(
+                RelatedOwner(owner_name=name, shared_address=addr, transaction_count=cnt)
+            )
+            if len(related) >= 20:
+                break
+
+    all_dates = [d for _, d, _ in buys] + [d for _, d, _ in sells]
+    return OwnerProfile(
+        owner_name=owner_name,
+        first_activity=min(all_dates) if all_dates else None,
+        last_activity=max(all_dates) if all_dates else None,
+        total_buys=len(buys),
+        total_sells=len(sells),
+        median_hold_days=median_hold,
+        activity=activity,
+        related_owners=related,
+    )
+
+
+@app.get("/parcels/{parcel_id}/comps", response_model=ParcelComps)
+async def get_parcel_comps(
+    parcel_id: str,
+    months: int = Query(18, description="How far back to look for comparable sales"),
+    limit: int = Query(10, le=50),
+    session: AsyncSession = Depends(get_session),
+):
+    """Recent arm's-length sales in the same neighborhood and class."""
+    latest = (
+        await session.exec(
+            select(Transaction.neighborhood, Transaction.parcel_class)
+            .where(Transaction.parcel_id == parcel_id)
+            .order_by(desc(Transaction.sale_date))
+            .limit(1)
+        )
+    ).first()
+    if latest is None or latest[0] is None:
+        return ParcelComps(
+            neighborhood=None,
+            parcel_class=latest[1] if latest else None,
+            median_price=None,
+            comps=[],
+        )
+    neighborhood, parcel_class = latest
+
+    cutoff = date.today() - timedelta(days=months * 30)
+    rows = (
+        await session.exec(
+            select(
+                Transaction.parcel_id,
+                Transaction.parcel_location,
+                Transaction.sale_date,
+                Transaction.sale_price,
+                Transaction.acres,
+            )
+            .where(Transaction.neighborhood == neighborhood)
+            .where(Transaction.parcel_class == parcel_class)
+            .where(Transaction.parcel_id != parcel_id)
+            .where(Transaction.sale_date >= cutoff)
+            .where(market_sale_criteria())
+            .order_by(desc(Transaction.sale_date))
+            .limit(limit)
+        )
+    ).all()
+
+    prices = sorted(r[3] for r in rows)
+    median = None
+    if prices:
+        mid = len(prices) // 2
+        median = prices[mid] if len(prices) % 2 else (prices[mid - 1] + prices[mid]) / 2
+
+    return ParcelComps(
+        neighborhood=neighborhood,
+        parcel_class=parcel_class,
+        median_price=median,
+        comps=[
+            CompSale(
+                parcel_id=r[0], parcel_location=r[1], sale_date=r[2],
+                sale_price=r[3], acres=r[4] or 0.0,
+            )
+            for r in rows
+        ],
+    )
+
+
+@app.get("/health/data", response_model=DataHealth)
+async def get_data_health(session: AsyncSession = Depends(get_session)):
+    """Freshness and coverage stats for the self-populating pipeline."""
+    total_txns = (await session.exec(select(func.count()).select_from(Transaction))).one()
+    total_parcels = (await session.exec(select(func.count()).select_from(Parcel))).one()
+    latest_sale = (await session.exec(select(func.max(Transaction.sale_date)))).one()
+    last_ingest = (await session.exec(select(func.max(DataFile.ingested_at)))).one()
+    geocoded = (
+        await session.exec(
+            select(func.count())
+            .select_from(Parcel)
+            .where(Parcel.latitude.is_not(None))
+            .where(Parcel.latitude != 0.0)
+        )
+    ).one()
+    market_sales = (
+        await session.exec(
+            select(func.count()).select_from(Transaction).where(market_sale_criteria())
+        )
+    ).one()
+    return DataHealth(
+        total_transactions=total_txns,
+        total_parcels=total_parcels,
+        latest_sale_date=latest_sale,
+        last_ingest_at=last_ingest,
+        geocoded_pct=(geocoded / total_parcels * 100) if total_parcels else 0.0,
+        market_sale_pct=(market_sales / total_txns * 100) if total_txns else 0.0,
+    )
 
 
 @app.get("/analytics/owner-holdings", response_model=list[OwnerParcel])

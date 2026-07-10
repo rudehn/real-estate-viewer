@@ -400,6 +400,138 @@ async def test_stale_parcels_age_computed_correctly(client, session):
 
 
 # ---------------------------------------------------------------------------
+# /analytics/owner-profile
+# ---------------------------------------------------------------------------
+
+async def test_owner_profile_activity_and_holds(client, session):
+    session.add(make_parcel())
+    # Bought P001 in 2020, sold it in 2021 (365-day hold)
+    session.add(make_transaction(
+        parcel_id="P001", new_owner="INVESTOR LLC",
+        sale_date=datetime.date(2020, 3, 1), sale_price=100_000,
+    ))
+    session.add(make_transaction(
+        parcel_id="P001", old_owner="INVESTOR LLC", new_owner="FAMILY HOME BUYER",
+        sale_date=datetime.date(2021, 3, 1), sale_price=150_000,
+    ))
+    await session.commit()
+
+    response = await client.get("/analytics/owner-profile?owner_name=INVESTOR%20LLC")
+    assert response.status_code == 200
+    profile = response.json()
+    assert profile["total_buys"] == 1
+    assert profile["total_sells"] == 1
+    assert profile["median_hold_days"] == 365
+    years = {a["year"]: a for a in profile["activity"]}
+    assert years[2020]["buy_count"] == 1
+    assert years[2020]["total_spent"] == 100_000
+    assert years[2021]["sell_count"] == 1
+    assert years[2021]["total_received"] == 150_000
+
+
+async def test_owner_profile_portfolio_deal_spent_once(client, session):
+    session.add(make_parcel())
+    # 3-parcel portfolio buy: $900k stamped on each row, spent must be $900k
+    for i in range(3):
+        session.add(make_transaction(
+            parcel_id=f"P00{i + 1}", new_owner="PORTFOLIO LLC",
+            sale_date=datetime.date(2022, 5, 1), sale_price=900_000,
+        ))
+    await session.commit()
+
+    profile = (await client.get("/analytics/owner-profile?owner_name=PORTFOLIO%20LLC")).json()
+    years = {a["year"]: a for a in profile["activity"]}
+    assert years[2022]["buy_count"] == 3
+    assert years[2022]["total_spent"] == 900_000
+
+
+async def test_owner_profile_related_by_mailing_address(client, session):
+    session.add(make_parcel())
+    session.add(make_transaction(
+        parcel_id="P001", new_owner="VB ONE LLC",
+        mailing_address="PO BOX 123 DAYTON OH", sale_price=100_000,
+    ))
+    session.add(make_transaction(
+        parcel_id="P002", new_owner="VB ELEVEN LLC",
+        mailing_address="PO BOX 123 DAYTON OH", sale_price=120_000,
+    ))
+    session.add(make_transaction(
+        parcel_id="P003", new_owner="UNRELATED CO",
+        mailing_address="99 ELSEWHERE ST", sale_price=90_000,
+    ))
+    await session.commit()
+
+    profile = (await client.get("/analytics/owner-profile?owner_name=VB%20ONE%20LLC")).json()
+    related_names = [r["owner_name"] for r in profile["related_owners"]]
+    assert related_names == ["VB ELEVEN LLC"]
+    assert profile["related_owners"][0]["shared_address"] == "PO BOX 123 DAYTON OH"
+
+
+# ---------------------------------------------------------------------------
+# /parcels/{parcel_id}/comps
+# ---------------------------------------------------------------------------
+
+async def test_parcel_comps_same_neighborhood_and_class(client, session):
+    session.add(make_parcel())
+    today = datetime.date.today()
+    # The subject parcel
+    session.add(make_transaction(parcel_id="P001", neighborhood="1010", sale_price=100_000))
+    # Two recent comps in the same neighborhood
+    session.add(make_transaction(
+        parcel_id="C001", neighborhood="1010", sale_price=200_000,
+        sale_date=today - datetime.timedelta(days=30),
+    ))
+    session.add(make_transaction(
+        parcel_id="C002", neighborhood="1010", sale_price=300_000,
+        sale_date=today - datetime.timedelta(days=60),
+    ))
+    # Wrong neighborhood and a nominal transfer: not comps
+    session.add(make_transaction(
+        parcel_id="C003", neighborhood="9999", sale_price=999_000,
+        sale_date=today - datetime.timedelta(days=30),
+    ))
+    session.add(make_transaction(
+        parcel_id="C004", neighborhood="1010", sale_price=0,
+        sale_date=today - datetime.timedelta(days=10),
+    ))
+    await session.commit()
+
+    response = await client.get("/parcels/P001/comps")
+    assert response.status_code == 200
+    result = response.json()
+    assert result["neighborhood"] == "1010"
+    assert {c["parcel_id"] for c in result["comps"]} == {"C001", "C002"}
+    assert result["median_price"] == 250_000
+
+
+async def test_parcel_comps_unknown_parcel(client):
+    response = await client.get("/parcels/NOPE/comps")
+    assert response.status_code == 200
+    assert response.json()["comps"] == []
+
+
+# ---------------------------------------------------------------------------
+# /health/data
+# ---------------------------------------------------------------------------
+
+async def test_data_health(client, session):
+    session.add(make_parcel(latitude=39.7, longitude=-84.2))
+    session.add(make_parcel(parcel_id="P002", parcel_location="456 OAK ST"))
+    session.add(make_transaction(sale_price=200_000))
+    session.add(make_transaction(parcel_id="P002", sale_price=0))
+    await session.commit()
+
+    response = await client.get("/health/data")
+    assert response.status_code == 200
+    health = response.json()
+    assert health["total_transactions"] == 2
+    assert health["total_parcels"] == 2
+    assert health["geocoded_pct"] == 50.0
+    assert health["market_sale_pct"] == 50.0
+    assert health["latest_sale_date"] == "2023-06-01"
+
+
+# ---------------------------------------------------------------------------
 # market_only on top-buyers
 # ---------------------------------------------------------------------------
 
