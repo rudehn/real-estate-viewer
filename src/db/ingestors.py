@@ -1,18 +1,17 @@
 import csv
 import datetime
 import glob
-import asyncio
 import zipfile
 from io import BytesIO, StringIO
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.orm import sessionmaker
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from db.models import Transaction, SaleType, DataFile, Parcel, ParcelClass
 from db.engine import engine
+from db.models import DataFile, Parcel, ParcelClass, SaleType, Transaction
 from logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -27,8 +26,10 @@ def _parcel_upsert_stmt(chunk: list[dict]):
     insert = pg_insert if engine.dialect.name == "postgresql" else sqlite_insert
     return insert(Parcel).values(chunk).on_conflict_do_nothing(index_elements=["parcel_id"])
 
+
 async def ingest_data_files(directory: str):
     await ingest_yearly_files(directory + "/yearly/**/SALES_*.csv")
+
 
 async def ingest_yearly_files(pathname: str):
     csv_files = glob.glob(pathname, recursive=True)
@@ -36,12 +37,13 @@ async def ingest_yearly_files(pathname: str):
     for csv_file in csv_files:
         await ingest_yearly_file(csv_file)
 
+
 async def ingest_yearly_file(filename: str):
     logger.info("Processing %s...", filename)
-    
+
     # Create a local async session for this task
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    
+
     async with async_session() as session:
         # 1. Check if file exists
         statement = select(DataFile).where(DataFile.filename == filename)
@@ -54,32 +56,32 @@ async def ingest_yearly_file(filename: str):
         # For massive files, we might run this in a thread, but simple read is fine here
         mappings = []
         parcels = {}
-        
-        with open(filename, "r", encoding="utf-8-sig") as f: # utf-8-sig handles BOM
+
+        with open(filename, encoding="utf-8-sig") as f:  # utf-8-sig handles BOM
             reader = csv.DictReader(f)
             for row in reader:
-                cleaned_row = {k.strip():v.strip() for k,v in row.items()}
+                cleaned_row = {k.strip(): v.strip() for k, v in row.items()}
                 if not any(cleaned_row.values()):
                     continue
-                
+
                 try:
                     # conversions...
                     s_price = float(cleaned_row.get("PRICE", 0))
                     acres_str = cleaned_row.get("ACRES", "0")
                     acres = float(acres_str) if acres_str else 0.0
                     conv_num = cleaned_row.get("CONVNUM")
-                    
+
                     # Handle Date Parsing safely
                     sale_date_str = row["SALEDTE"]
                     sale_date = datetime.datetime.strptime(sale_date_str, "%d-%b-%y").date()
-                    
+
                     # Safely get Enum
                     p_class_str = cleaned_row.get("CLS", "R")
                     # Simple mapping fallback
                     try:
                         p_class = ParcelClass[p_class_str]
                     except:
-                        p_class = ParcelClass.R # Default or Log error
+                        p_class = ParcelClass.R  # Default or Log error
 
                     assessed_land = cleaned_row.get("ASMTLAND")
                     assessed_building = cleaned_row.get("ASMTBLDG")
@@ -102,45 +104,44 @@ async def ingest_yearly_file(filename: str):
                         taxable_land=int(cleaned_row.get("TAXLAND", 0)),
                         taxable_building=int(cleaned_row.get("TAXBLDG", 0)),
                         taxable_total=int(cleaned_row.get("TAXTOTAL", 0)),
-                        
                         assessed_land=int(assessed_land) if assessed_land else None,
                         assessed_building=int(assessed_building) if assessed_building else None,
                         assessed_total=int(assessed_total) if assessed_total else None,
                         sale_type=SaleType(sale_type.upper()) if sale_type else None,
                         sale_validity=cleaned_row.get("SALEVALIDITY"),
                         deed_reference=cleaned_row.get("DEEDREFERENCE"),
-                        neighborhood=cleaned_row.get("NBHD")
+                        neighborhood=cleaned_row.get("NBHD"),
                     )
                     mappings.append(transaction)
-                    
+
                     # Prepare parcel for upsert
                     parcels[transaction.parcel_id] = {
                         "parcel_id": transaction.parcel_id,
                         "parcel_location": transaction.parcel_location,
                         "parcel_class": transaction.parcel_class,
-                        "acres": transaction.acres
+                        "acres": transaction.acres,
                     }
                 except Exception as e:
                     logger.warning("Error parsing row: %s", e)
                     continue
 
-        # 3. Bulk Insert Transactions
-        if mappings:
-             # SQLModel bulk insert for SQLite isn't fully async optimized, 
-             # but add_all + commit works well
-            session.add_all(mappings)
-            
-            # 4. Upsert Parcels
+        if parcels:
             parcel_values = list(parcels.values())
             # Chunk to stay under per-statement bind-parameter limits.
             chunk_size = 100
             for i in range(0, len(parcel_values), chunk_size):
-                chunk = parcel_values[i:i+chunk_size]
+                chunk = parcel_values[i : i + chunk_size]
                 await session.exec(_parcel_upsert_stmt(chunk))
+
+        # 3. Bulk Insert Transactions
+        if mappings:
+            # SQLModel bulk insert for SQLite isn't fully async optimized,
+            # but add_all + commit works well
+            session.add_all(mappings)
 
             # 5. Mark file as ingested
             session.add(DataFile(filename=filename, ingested_at=datetime.datetime.now()))
-            
+
             await session.commit()
             logger.info("Committed %d transactions from %s", len(mappings), filename)
 
@@ -220,7 +221,7 @@ async def ingest_weekly_data() -> None:
     - Downloads new ZIPs concurrently, then inserts each batch sequentially.
     - Skips individual rows whose conv_num already exists (row-level dedup).
     """
-    from services.data_retrieval import get_weekly_zip_urls, download_weekly_zips
+    from services.data_retrieval import download_weekly_zips, get_weekly_zip_urls
 
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -271,13 +272,13 @@ async def _ingest_weekly_zip(filename: str, raw_bytes: bytes) -> None:
             logger.info("No rows parsed from %s", filename)
             return
 
-        session.add_all(transactions)
-
         parcel_values = list(parcels.values())
         chunk_size = 100
         for i in range(0, len(parcel_values), chunk_size):
             chunk = parcel_values[i : i + chunk_size]
             await session.exec(_parcel_upsert_stmt(chunk))
+
+        session.add_all(transactions)
 
         session.add(DataFile(filename=filename, ingested_at=datetime.datetime.now()))
         await session.commit()
