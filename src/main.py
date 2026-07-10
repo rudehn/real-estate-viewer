@@ -3,7 +3,7 @@ import asyncio
 import os
 from enum import Enum
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path as FilePath
 
 from fastapi import Depends, FastAPI, HTTPException, Path, Query
@@ -13,7 +13,7 @@ from sqlmodel import Field, Session, and_, select, desc
 from sqlmodel.ext.asyncio.session import AsyncSession
 # from fastapi_filters import create_filters, create_filters_from_model, FilterValues
 # from fastapi_filters.ext.sqlalchemy import apply_filters
-from sqlalchemy import func, Integer
+from sqlalchemy import func, Integer, cast, Date, extract
 from sqlalchemy.orm import selectinload
 
 from fastapi_filter import FilterDepends, with_prefix
@@ -283,7 +283,8 @@ async def get_flips(
     t1 = Transaction.__table__.alias("t1")
     t2 = Transaction.__table__.alias("t2")
 
-    hold_days_expr = func.julianday(t2.c.sale_date) - func.julianday(t1.c.sale_date)
+    # Postgres date subtraction yields an integer number of days.
+    hold_days_expr = t2.c.sale_date - t1.c.sale_date
     profit_expr = t2.c.sale_price - t1.c.sale_price
     profit_pct_expr = profit_expr / t1.c.sale_price
 
@@ -481,7 +482,7 @@ async def get_neighborhood_trends(
     session: AsyncSession = Depends(get_session),
 ):
     """Year-over-year median price change per neighborhood (gentrification score)."""
-    year_expr = func.strftime("%Y", Transaction.sale_date).label("year")
+    year_expr = extract("year", Transaction.sale_date).label("year")
     yearly = (
         select(
             Transaction.neighborhood.label("neighborhood"),
@@ -527,12 +528,14 @@ async def get_stale_parcels(
     session: AsyncSession = Depends(get_session),
 ):
     """Find parcels that haven't changed hands recently."""
-    years_expr = (func.julianday("now") - func.julianday(func.max(Transaction.sale_date))) / 365.25
+    years_expr = (func.current_date() - func.max(Transaction.sale_date)) / 365.25
     query = (
         select(
             Transaction.parcel_id,
-            Transaction.parcel_location,
-            Transaction.parcel_class,
+            # Aggregated so Postgres accepts the GROUP BY (one row per parcel);
+            # a parcel's location/class are consistent across its transactions.
+            func.max(Transaction.parcel_location).label("parcel_location"),
+            func.max(Transaction.parcel_class).label("parcel_class"),
             func.max(Transaction.sale_date).label("last_sale_date"),
             func.max(Transaction.sale_price).label("last_sale_price"),
             years_expr.label("years_since_sale"),
@@ -562,7 +565,7 @@ async def get_acquisition_waves(
     t_outer = Transaction.__table__.alias("t_outer")
     t_inner = Transaction.__table__.alias("t_inner")
 
-    window_end_expr = func.date(t_outer.c.sale_date, f"+{window_days} days")
+    window_end_expr = cast(t_outer.c.sale_date + timedelta(days=window_days), Date)
     count_expr = func.count(t_inner.c.id).label("acquisition_count")
     spent_expr = func.sum(t_inner.c.sale_price).label("total_spent")
 

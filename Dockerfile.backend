@@ -22,8 +22,12 @@ COPY src ./src
 
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Drop root.
-RUN useradd --create-home --uid 10001 app && chown -R app:app /app
+# Drop root. Pre-create the DATA_DIR mount point owned by the app user: when an
+# empty named volume is first mounted here, Docker copies this ownership onto it,
+# so the non-root process can write downloaded CSVs (avoids a root-owned volume).
+RUN useradd --create-home --uid 10001 app \
+    && mkdir -p /ingest \
+    && chown -R app:app /app /ingest
 USER app
 
 EXPOSE 8000
