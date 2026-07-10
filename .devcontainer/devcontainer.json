@@ -14,7 +14,8 @@
         "charliermarsh.ruff",
         "eamodio.gitlens",
         "matangover.mypy",
-        "qwtel.sqlite-viewer" 
+        "qwtel.sqlite-viewer",
+        "anthropic.claude-code"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
@@ -27,6 +28,10 @@
   // 1. Safe git config
   // 2. Sync dependencies using uv (Creates the .venv inside linux)
   "postCreateCommand": "git config --global --add safe.directory /workspace && uv sync",
+
+  "remoteEnv": {
+    "PATH": "/workspace/.venv/bin:${containerEnv:PATH}"
+  },
 
   "remoteUser": "vscode"
 }

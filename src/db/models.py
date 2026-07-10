@@ -103,3 +103,89 @@ class OwnerStats(BaseModel):
     transaction_count: int
     total_spent: float
     avg_price: float
+
+
+class NeighborhoodStats(BaseModel):
+    neighborhood: str
+    transaction_count: int
+    total_volume: float
+    avg_price: float
+    min_price: float
+    max_price: float
+
+
+class FlipResult(BaseModel):
+    parcel_id: str
+    parcel_location: str
+    buy_date: date
+    sell_date: date
+    buy_price: float
+    sell_price: float
+    hold_days: int
+    profit: float
+    profit_pct: float
+    buyer: str
+    seller: str
+
+
+class DistressedSale(BaseModel):
+    id: int
+    parcel_id: str
+    parcel_location: str
+    sale_date: date
+    sale_price: float
+    assessed_total: int
+    assessed_ratio: float
+    new_owner: str
+    neighborhood: str | None
+    parcel_class: ParcelClass
+
+
+class OwnerHoldings(BaseModel):
+    owner_name: str
+    parcel_count: int
+    total_acres: float
+    total_assessed_value: float
+
+
+class NetSellerStats(BaseModel):
+    owner_name: str
+    buy_count: int
+    sell_count: int
+    net: int
+
+
+class NeighborhoodTrend(BaseModel):
+    neighborhood: str
+    year: int
+    avg_price: float
+    yoy_change_pct: float | None
+
+
+class StaleParcel(BaseModel):
+    parcel_id: str
+    parcel_location: str
+    parcel_class: ParcelClass
+    last_sale_date: date
+    last_sale_price: float
+    years_since_sale: float
+
+
+class AcquisitionWave(BaseModel):
+    owner_name: str
+    window_start: date
+    window_end: date
+    acquisition_count: int
+    total_spent: float
+
+
+class OwnerParcel(BaseModel):
+    parcel_id: str
+    parcel_location: str
+    parcel_class: ParcelClass
+    acres: float
+    last_sale_date: date
+    last_sale_price: float
+    assessed_total: float | None = None
+    latitude: float | None = None
+    longitude: float | None = None

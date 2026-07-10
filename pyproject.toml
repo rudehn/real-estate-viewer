@@ -1,8 +1,8 @@
 [project]
-name = "fastapi-project"
+name = "real-estate-viewer"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "County real-estate transactions analysis: FastAPI backend + Next.js frontend"
+readme = "Readme.md"
 requires-python = ">=3.12"
 dependencies = [
     "aiosqlite>=0.21.0",
@@ -12,22 +12,21 @@ dependencies = [
     "fastapi-filter>=2.0.1",
     "greenlet>=3.2.4",
     "httpx>=0.28.1",
-    "pandas>=2.3.3",
-    "plotly>=6.5.0",
     "sqlmodel>=0.0.27",
-    "streamlit>=1.51.0",
     "typer>=0.20.0",
     "uvicorn>=0.38.0",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = "src"
+asyncio_mode = "auto"
 
 [dependency-groups]
 dev = [
     "mypy>=1.18.2",
     "pytest>=9.0.1",
-    "ruff>=0.3.0"
+    "pytest-asyncio>=0.23",
+    "ruff>=0.3.0",
 ]
 
 

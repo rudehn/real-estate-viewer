@@ -1,0 +1,17 @@
+# Keep the backend build context small and free of local state.
+.git
+.venv
+frontend
+data
+database.db
+**/database.db
+**/__pycache__
+.pytest_cache
+.vscode
+.devcontainer
+docs
+tests
+migrations
+*.png
+*.code-workspace
+ideas.txt

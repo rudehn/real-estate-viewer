@@ -1,11 +1,13 @@
 import asyncio
 import typer
 from db.engine import init_db
-from db.ingestors import ingest_data_files
+from db.ingestors import ingest_data_files, ingest_weekly_data
 from services.data_retrieval import retrieve_yearly_data
-from services.geocoding import geocode_parcels, geocode_parcels_slow
+from services.geocoding import geocode_parcels
+from logging_config import configure_logging, get_logger
 
 app = typer.Typer()
+logger = get_logger(__name__)
 """
 Usage
 
@@ -15,55 +17,58 @@ python cli.py fetch-data
 """
 
 @app.command()
-def init():
+def init(log_level: str = typer.Option("INFO", "--log-level", help="Logging level")):
     """Initialize the database tables."""
-    print("Creating tables...")
+    configure_logging(log_level)
+    logger.info("Creating tables...")
     asyncio.run(init_db())
-    print("Tables created.")
+    logger.info("Tables created.")
 
 @app.command()
-def fetch():
+def fetch(
+    force: bool = typer.Option(False, "--force", help="Re-download files even if already on disk"),
+    log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
+):
     """Download fresh data from the web."""
-    print("Fetching yearly data...")
-    retrieve_yearly_data()
-    print("Done.")
+    configure_logging(log_level)
+    logger.info("Fetching yearly data...")
+    retrieve_yearly_data(force=force)
+    logger.info("Done.")
 
 @app.command()
-def ingest(directory: str = "data"):
+def ingest(
+    directory: str = "data",
+    log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
+):
     """Ingest CSV files from the data directory."""
-    print(f"Ingesting data from {directory}...")
+    configure_logging(log_level)
+    logger.info("Ingesting data from %s...", directory)
     asyncio.run(ingest_data_files(directory))
-    print("Ingestion complete.")
+    logger.info("Ingestion complete.")
 
 @app.command()
-def geocode(loops: int = 1, batch_size: int = 50):
-    """
-    Geocode parcels that are missing coordinates.
-    loops: How many batches to run (default 1)
-    batch_size: Parcels per batch (default 50)
-    """
-    print(f"Starting geocoding loop ({loops} loops of {batch_size} records)...")
-    
+def ingest_weekly(
+    log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
+):
+    """Download and ingest all new weekly sales files from the county website."""
+    configure_logging(log_level)
+    asyncio.run(ingest_weekly_data())
+    logger.info("Weekly ingestion complete.")
+
+
+@app.command()
+def geocode(
+    loops: int = typer.Option(1, help="How many batches to run"),
+    batch_size: int = typer.Option(10_000, help="Parcels per batch (max 10,000 for Census API)"),
+    log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
+):
+    """Geocode parcels that are missing coordinates using the Census batch API."""
+    configure_logging(log_level)
+    logger.info("Starting geocoding (%d loops of %d records)...", loops, batch_size)
     for i in range(loops):
-        print(f"--- Loop {i+1}/{loops} ---")
+        logger.info("--- Loop %d/%d ---", i + 1, loops)
         asyncio.run(geocode_parcels(batch_size=batch_size))
-    
-    print("Geocoding run complete.")
-
-@app.command()
-def geocode_slow(loops: int = 1, batch_size: int = 50):
-    """
-    Geocode parcels that are missing coordinates.
-    loops: How many batches to run (default 1)
-    batch_size: Parcels per batch (default 50)
-    """
-    print(f"Starting geocoding loop ({loops} loops of {batch_size} records)...")
-    
-    for i in range(loops):
-        print(f"--- Loop {i+1}/{loops} ---")
-        asyncio.run(geocode_parcels_slow(batch_size=batch_size))
-    
-    print("Geocoding run complete.")
+    logger.info("Geocoding run complete.")
 
 if __name__ == "__main__":
     app()

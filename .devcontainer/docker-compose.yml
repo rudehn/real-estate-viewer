@@ -15,6 +15,7 @@ services:
     ports:
       - "8000:8000"
       - "8501:8501"
+      - "3000:3000"
     
     # Set environment variables
     environment:

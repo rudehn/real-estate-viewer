@@ -1,0 +1,56 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Ingest: Weekly Sales",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "cli",
+      "args": ["ingest-weekly"],
+      "cwd": "${workspaceFolder}/src",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "python": "${workspaceFolder}/.venv/bin/python"
+    },
+    {
+      "name": "Geocode: Census Batch",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "cli",
+      "args": ["geocode", "--loops", "13"],
+      "cwd": "${workspaceFolder}/src",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "python": "${workspaceFolder}/.venv/bin/python"
+    },
+    {
+      "name": "Backend: FastAPI",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
+      "cwd": "${workspaceFolder}/src",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "jinja": true
+    },
+    {
+      "name": "Frontend: Next.js",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/frontend"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full Stack",
+      "configurations": ["Backend: FastAPI", "Frontend: Next.js"],
+      "stopAll": true
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+# Keep the frontend build context small; deps are installed fresh in the image.
+.git
+node_modules
+.next
+out
+build
+*.tsbuildinfo
+.env*.local
+.DS_Store
+npm-debug.log*

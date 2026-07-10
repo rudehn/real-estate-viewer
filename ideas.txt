@@ -1,0 +1,26 @@
+See current list of holdings for an individual
+Who owns the most real estate. By value, By number of properties, paginate
+Some investors use multiple LLCs, see if we identify those (clustering, owner is similar to this other owner, etc)
+See who's got the strongest relationships. Who's always buying and selling to each other
+How long since a property has been sold. Top properties that haven't been sold recently
+Pull in neighborhood names to neighborhood codes
+Time series on map?
+Is price timeline chart useful?
+Who's selling off all their properties (and not buying)?
+Which areas are seeing a lot of buying activity
+Which areas are seeing a lot of selling activity
+
+save query for geocoverage
+
+-- Added ideas --
+Price per acre trends (normalize comparisons across lot sizes)
+Flip detection backend endpoint (port existing frontend flipDetection.ts logic to API)
+Distressed sale indicators (sale_price / assessed_total < threshold)
+Portfolio velocity (avg hold time per owner before selling)
+Absentee owner detection (mailing_address state != OH)
+Acquisition wave detection (owners who bought many properties in a short window)
+Price heat map by parcel class (residential vs commercial spatial trends)
+Neighborhood gentrification score (YoY median price increase rate per neighborhood)
+Proximity analysis (what sold near X address in last Y months, needs geocoding)
+Unvalidated sales volume (% of transactions where sale_validity != VALID SALE)
+Geocoding coverage by neighborhood (which neighborhoods have worst coordinate coverage)
