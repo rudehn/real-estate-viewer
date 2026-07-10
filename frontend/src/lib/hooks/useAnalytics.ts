@@ -5,11 +5,19 @@ import {
   getTopBuyers, getTopSellers, getNeighborhoods,
   getFlips, getDistressedSales, getTopOwners, getNetSellers,
   getNeighborhoodTrends, getStaleParcels, getAcquisitionWaves, getAbsenteeOwners,
-  searchOwners, getOwnerHoldings,
+  searchOwners, getOwnerHoldings, getMarketStats, type MarketStatsParams,
 } from "@/lib/api/analytics";
 import type { AnalyticsFilters } from "@/lib/types/api";
 
 const STALE = 5 * 60_000;
+
+export function useMarketStats(params: MarketStatsParams = {}) {
+  return useQuery({
+    queryKey: ["market-stats", params],
+    queryFn: () => getMarketStats(params),
+    staleTime: STALE,
+  });
+}
 
 export function useTopBuyers(limit = 20) {
   return useQuery({ queryKey: ["top-buyers", limit], queryFn: () => getTopBuyers(limit), staleTime: STALE });

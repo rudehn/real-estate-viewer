@@ -192,3 +192,93 @@ async def test_duplicate_file_is_not_reingested():
 
     await test_engine.dispose()
     assert len(txns) == 1
+
+
+async def test_same_row_in_two_files_is_inserted_once():
+    """Weekly ZIPs overlap the yearly files; identical rows must dedup."""
+    from db.ingestors import ingest_yearly_file
+    from sqlmodel import SQLModel, select
+    from sqlmodel.ext.asyncio.session import AsyncSession
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from db.models import Transaction
+    import db.ingestors as ingestors_module
+
+    test_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with test_engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+    # The same sale plus one new sale, arriving via a second file
+    other_row = {**BASE_ROW, "CONVNUM": "99999", "PRICE": "225000"}
+    paths = []
+    for rows in ([BASE_ROW], [BASE_ROW, other_row]):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="utf-8") as f:
+            f.write(make_csv(rows))
+            paths.append(f.name)
+
+    try:
+        original_engine = ingestors_module.engine
+        ingestors_module.engine = test_engine
+
+        for p in paths:
+            await ingest_yearly_file(p)
+
+        async_session = sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+        async with async_session() as s:
+            txns = (await s.exec(select(Transaction))).all()
+
+        ingestors_module.engine = original_engine
+    finally:
+        for p in paths:
+            os.unlink(p)
+
+    await test_engine.dispose()
+    assert len(txns) == 2
+    assert sorted(t.sale_price for t in txns) == [150000.0, 225000.0]
+
+
+async def test_maintenance_dedupes_existing_rows():
+    """ensure_transaction_dedup removes pre-index duplicates and is idempotent."""
+    from sqlalchemy import text as sa_text
+    from sqlmodel import SQLModel, select
+    from sqlmodel.ext.asyncio.session import AsyncSession
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from db.models import Parcel, Transaction
+    import db.maintenance as maintenance_module
+
+    test_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with test_engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+        # Simulate a database from before the unique index existed
+        await conn.execute(sa_text("DROP INDEX uq_transaction_natural"))
+
+    async_session = sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    async with async_session() as s:
+        s.add(Parcel(parcel_id="P1", parcel_location="1 ELM ST",
+                     parcel_class=ParcelClass.R, acres=0.2))
+        for _ in range(3):
+            s.add(Transaction(
+                parcel_id="P1", conv_num=42, sale_date=datetime.date(2023, 1, 1),
+                sale_price=100000.0, old_owner="A", new_owner="B",
+                parcel_location="1 ELM ST", mailing_name="B", mailing_address="X",
+                parcel_class=ParcelClass.R, acres=0.2,
+                taxable_land=1, taxable_building=1, taxable_total=2,
+                assessed_land=None, assessed_building=None, assessed_total=None,
+                sale_type=None, sale_validity=None, deed_reference=None,
+                neighborhood=None,
+            ))
+        await s.commit()
+
+    original_engine = maintenance_module.engine
+    maintenance_module.engine = test_engine
+    try:
+        await maintenance_module.ensure_transaction_dedup()
+        await maintenance_module.ensure_transaction_dedup()  # idempotent
+    finally:
+        maintenance_module.engine = original_engine
+
+    async with async_session() as s:
+        txns = (await s.exec(select(Transaction))).all()
+    await test_engine.dispose()
+    assert len(txns) == 1

@@ -62,16 +62,18 @@ export function TopOwners({ data }: Props) {
         </div>
       </CardHeader>
       <CardContent>
-        <ResponsiveContainer width="100%" height={320}>
+        {/* Keyed on the metric so switching remounts the chart; Recharts
+            otherwise leaves the previous axis labels behind. */}
+        <ResponsiveContainer key={sortBy} width="100%" height={360}>
           <BarChart data={chartData} layout="vertical" margin={{ left: 4, right: 24, top: 4, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
             <XAxis type="number" tickFormatter={formatValue} tick={{ fontSize: 10 }} />
-            <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={140} />
+            <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={160} interval={0} />
             <Tooltip
               formatter={(v: number) => [formatValue(v), SORT_OPTIONS.find(o => o.value === sortBy)?.label]}
               labelStyle={{ fontSize: 12 }}
             />
-            <Bar dataKey="value" radius={[0, 2, 2, 0]}>
+            <Bar dataKey="value" radius={[0, 2, 2, 0]} isAnimationActive={false}>
               {chartData.map((_, i) => (
                 <Cell key={i} fill={`hsl(${210 + i * 8}, 65%, ${50 + i * 1.5}%)`} />
               ))}

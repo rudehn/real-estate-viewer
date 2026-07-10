@@ -47,7 +47,12 @@ const COLUMNS = [
   }),
   col.accessor("acres", {
     header: "Acres",
-    cell: (i) => <span className="tabular-nums">{i.getValue().toFixed(2)}</span>,
+    // 0 means "not recorded" in the county data, not a zero-acre parcel
+    cell: (i) => (
+      <span className="tabular-nums">
+        {i.getValue() > 0 ? i.getValue().toFixed(2) : "—"}
+      </span>
+    ),
   }),
   col.accessor("new_owner", {
     header: "Buyer",

@@ -29,7 +29,7 @@ function HoldingsSummary({ parcels }: { parcels: OwnerParcel[] }) {
       </div>
       <div className="bg-muted/50 rounded-lg p-3">
         <div className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Total Acres</div>
-        <div className="font-semibold text-lg">{totalAcres.toFixed(2)}</div>
+        <div className="font-semibold text-lg">{totalAcres > 0 ? totalAcres.toFixed(2) : "—"}</div>
       </div>
       <div className="bg-muted/50 rounded-lg p-3">
         <div className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Assessed Value</div>
@@ -147,7 +147,17 @@ export default function OwnersPage() {
                         </td>
                         <td className="px-3 py-1.5 tabular-nums">{p.acres.toFixed(2)}</td>
                         <td className="px-3 py-1.5 whitespace-nowrap">{formatDate(p.last_sale_date)}</td>
-                        <td className="px-3 py-1.5 tabular-nums">{formatCurrencyFull(p.last_sale_price)}</td>
+                        <td className="px-3 py-1.5 tabular-nums whitespace-nowrap">
+                          {formatCurrencyFull(p.last_sale_price)}
+                          {p.deal_size > 1 && (
+                            <span
+                              className="ml-1 text-muted-foreground"
+                              title={`Acquired in one ${p.deal_size}-parcel deal; the price covers all ${p.deal_size} parcels.`}
+                            >
+                              ({p.deal_size}-parcel deal)
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-1.5 tabular-nums">
                           {p.assessed_total ? formatCurrencyFull(p.assessed_total) : "—"}
                         </td>

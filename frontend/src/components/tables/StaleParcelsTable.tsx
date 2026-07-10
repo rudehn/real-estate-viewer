@@ -10,6 +10,10 @@ interface Props {
   data: StaleParcel[];
 }
 
+// County sales records begin in January 2001; a "last sale" that early
+// really means no sale in the dataset's lifetime.
+const DATASET_START_YEAR = 2001;
+
 export function StaleParcelsTable({ data }: Props) {
   return (
     <Card>
@@ -42,12 +46,19 @@ export function StaleParcelsTable({ data }: Props) {
                   </td>
                   <td className="px-3 py-1.5 whitespace-nowrap">{formatDate(row.last_sale_date)}</td>
                   <td className="px-3 py-1.5 tabular-nums">{formatCurrencyFull(row.last_sale_price)}</td>
-                  <td className="px-3 py-1.5 tabular-nums font-medium">{row.years_since_sale.toFixed(1)} yrs</td>
+                  <td className="px-3 py-1.5 tabular-nums font-medium whitespace-nowrap">
+                    {new Date(row.last_sale_date).getFullYear() <= DATASET_START_YEAR
+                      ? "25+ yrs*"
+                      : `${row.years_since_sale.toFixed(1)} yrs`}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <p className="text-xs text-muted-foreground px-3 py-2">
+          * Records begin in 2001; these parcels have no sale in the dataset&apos;s lifetime.
+        </p>
       </CardContent>
     </Card>
   );

@@ -7,7 +7,7 @@ interface KpiCardProps {
   value: string;
   delta?: number;
   deltaLabel?: string;
-  icon?: string;
+  icon?: React.ReactNode;
   isLoading?: boolean;
 }
 

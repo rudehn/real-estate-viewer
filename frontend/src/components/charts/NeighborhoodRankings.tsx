@@ -51,16 +51,18 @@ export function NeighborhoodRankings({ data }: Props) {
         </div>
       </CardHeader>
       <CardContent>
-        <ResponsiveContainer width="100%" height={300}>
+        {/* Keyed on the metric so switching remounts the chart; Recharts
+            otherwise leaves the previous axis labels behind. */}
+        <ResponsiveContainer key={sortBy} width="100%" height={420}>
           <BarChart data={sorted} layout="vertical" margin={{ left: 12, right: 20, top: 4, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
             <XAxis type="number" tickFormatter={formatY} tick={{ fontSize: 10 }} />
-            <YAxis type="category" dataKey="neighborhood" tick={{ fontSize: 10 }} width={45} />
+            <YAxis type="category" dataKey="neighborhood" tick={{ fontSize: 10 }} width={70} interval={0} />
             <Tooltip
               formatter={(v: number) => [formatY(v), sortBy.replace(/_/g, " ")]}
               labelStyle={{ fontSize: 12 }}
             />
-            <Bar dataKey={sortBy} radius={[0, 2, 2, 0]}>
+            <Bar dataKey={sortBy} radius={[0, 2, 2, 0]} isAnimationActive={false}>
               {sorted.map((_, i) => (
                 <Cell key={i} fill={`hsl(${220 - i * 6}, 70%, ${55 + i * 1.5}%)`} />
               ))}

@@ -3,7 +3,22 @@ import type {
   AnalyticsFilters, NeighborhoodStats, OwnerStats,
   FlipResult, DistressedSale, OwnerHoldings, NetSellerStats,
   NeighborhoodTrend, StaleParcel, AcquisitionWave, OwnerParcel,
+  Granularity, MarketStatsBucket, TransactionFilters,
 } from "@/lib/types/api";
+
+export interface MarketStatsParams extends TransactionFilters {
+  granularity?: Granularity;
+  market_only?: boolean;
+}
+
+export async function getMarketStats(
+  params: MarketStatsParams = {}
+): Promise<MarketStatsBucket[]> {
+  return apiFetch<MarketStatsBucket[]>(
+    "/analytics/market-stats",
+    params as Record<string, ParamValue>
+  );
+}
 
 export async function getTopBuyers(
   limit = 20,

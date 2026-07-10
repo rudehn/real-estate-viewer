@@ -1,15 +1,15 @@
 import { cn } from "@/lib/utils";
-import type { Period } from "@/lib/utils/chartHelpers";
+import type { Granularity } from "@/lib/types/api";
 
-const OPTIONS: { value: Period; label: string }[] = [
-  { value: "monthly", label: "M" },
-  { value: "quarterly", label: "Q" },
-  { value: "annual", label: "Y" },
+const OPTIONS: { value: Granularity; label: string }[] = [
+  { value: "month", label: "M" },
+  { value: "quarter", label: "Q" },
+  { value: "year", label: "Y" },
 ];
 
 interface Props {
-  value: Period;
-  onChange: (p: Period) => void;
+  value: Granularity;
+  onChange: (p: Granularity) => void;
 }
 
 export function PeriodToggle({ value, onChange }: Props) {

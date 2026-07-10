@@ -1,86 +1,117 @@
 "use client";
 
+import { useState } from "react";
 import { useFilters } from "@/lib/hooks/useFilters";
-import { useTransactions } from "@/lib/hooks/useTransactions";
+import { useMarketStats } from "@/lib/hooks/useAnalytics";
 import { KpiCard } from "@/components/kpi/KpiCard";
 import { MedianPriceTrend } from "@/components/charts/MedianPriceTrend";
 import { TransactionVolume } from "@/components/charts/TransactionVolume";
 import { SeasonalHeatmap } from "@/components/charts/SeasonalHeatmap";
-import { computeMedian, formatCurrency } from "@/lib/utils/formatters";
-import { Skeleton } from "@/components/ui/skeleton";
+import { formatCurrency } from "@/lib/utils/formatters";
+import type { Granularity } from "@/lib/types/api";
+
+function isoDaysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function pctChange(cur: number, prev: number): number | undefined {
+  if (!prev || !cur) return undefined;
+  return ((cur - prev) / prev) * 100;
+}
 
 export default function OverviewPage() {
   const { filters } = useFilters();
-  const { data, isLoading } = useTransactions({ ...filters, limit: 10_000 });
+  const [priceGran, setPriceGran] = useState<Granularity>("year");
+  const [volumeGran, setVolumeGran] = useState<Granularity>("year");
 
-  const transactions = data?.entities ?? [];
-  const totalCount = data?.count ?? 0;
+  // All aggregation happens server-side over the full filtered set —
+  // no row cap, so the KPIs are exact.
+  const { data: totals, isLoading } = useMarketStats({ ...filters, granularity: "all" });
+  const { data: priceBuckets = [], isLoading: priceLoading } = useMarketStats({
+    ...filters,
+    granularity: priceGran,
+  });
+  const { data: volumeBuckets = [], isLoading: volumeLoading } = useMarketStats({
+    ...filters,
+    granularity: volumeGran,
+  });
+  const { data: monthly = [] } = useMarketStats({ ...filters, granularity: "month" });
 
-  const prices = transactions.map((t) => t.sale_price).filter((p) => p > 0);
-  const medianPrice = computeMedian(prices);
-  const totalVolume = prices.reduce((s, p) => s + p, 0);
-  const avgPricePerAcre =
-    transactions.length > 0
-      ? transactions.filter((t) => t.acres > 0).reduce(
-          (s, t) => s + t.sale_price / t.acres,
-          0
-        ) / transactions.filter((t) => t.acres > 0).length
-      : 0;
+  // Momentum: trailing 12 months vs the 12 months before, with the user's
+  // non-date filters applied (the date filter is overridden on purpose).
+  const windowFilters = { ...filters, granularity: "all" as const };
+  const { data: last12 } = useMarketStats({
+    ...windowFilters,
+    sale_date__gte: isoDaysAgo(365),
+    sale_date__lte: isoDaysAgo(0),
+  });
+  const { data: prior12 } = useMarketStats({
+    ...windowFilters,
+    sale_date__gte: isoDaysAgo(730),
+    sale_date__lte: isoDaysAgo(366),
+  });
+
+  const all = totals?.[0];
+  const cur = last12?.[0];
+  const prev = prior12?.[0];
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Overview</h1>
-        <p className="text-sm text-muted-foreground">Montgomery County, OH · Real estate transactions</p>
+        <p className="text-sm text-muted-foreground">
+          Montgomery County, OH · Arm&apos;s-length market sales
+        </p>
       </div>
 
       {/* KPI Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
-          title="Total Transactions"
-          value={isLoading ? "…" : totalCount.toLocaleString()}
-          icon="📋"
+          title="Market Sales"
+          value={(all?.transaction_count ?? 0).toLocaleString()}
+          delta={pctChange(cur?.transaction_count ?? 0, prev?.transaction_count ?? 0)}
           isLoading={isLoading}
         />
         <KpiCard
           title="Median Sale Price"
-          value={isLoading ? "…" : formatCurrency(medianPrice)}
-          icon="💰"
+          value={formatCurrency(all?.median_price ?? 0)}
+          delta={pctChange(cur?.median_price ?? 0, prev?.median_price ?? 0)}
+          isLoading={isLoading}
+        />
+        <KpiCard
+          title="Average Sale Price"
+          value={formatCurrency(all?.avg_price ?? 0)}
+          delta={pctChange(cur?.avg_price ?? 0, prev?.avg_price ?? 0)}
           isLoading={isLoading}
         />
         <KpiCard
           title="Total Volume"
-          value={isLoading ? "…" : formatCurrency(totalVolume)}
-          icon="📦"
-          isLoading={isLoading}
-        />
-        <KpiCard
-          title="Avg $/Acre"
-          value={isLoading ? "…" : formatCurrency(avgPricePerAcre)}
-          icon="🌾"
+          value={formatCurrency(all?.total_volume ?? 0)}
+          delta={pctChange(cur?.total_volume ?? 0, prev?.total_volume ?? 0)}
           isLoading={isLoading}
         />
       </div>
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {isLoading ? (
-          <>
-            <Skeleton className="h-[280px] rounded-lg" />
-            <Skeleton className="h-[280px] rounded-lg" />
-          </>
-        ) : (
-          <>
-            <MedianPriceTrend transactions={transactions} />
-            <TransactionVolume transactions={transactions} />
-          </>
-        )}
+        <MedianPriceTrend
+          data={priceBuckets}
+          granularity={priceGran}
+          onGranularityChange={setPriceGran}
+          isLoading={priceLoading}
+        />
+        <TransactionVolume
+          data={volumeBuckets}
+          granularity={volumeGran}
+          onGranularityChange={setVolumeGran}
+          isLoading={volumeLoading}
+        />
       </div>
 
       {/* Seasonal Heatmap */}
-      {!isLoading && transactions.length > 0 && (
-        <SeasonalHeatmap transactions={transactions} />
-      )}
+      <SeasonalHeatmap monthly={monthly} />
     </div>
   );
 }

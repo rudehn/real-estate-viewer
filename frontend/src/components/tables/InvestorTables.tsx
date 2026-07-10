@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatCurrencyFull, formatDate } from "@/lib/utils/formatters";
+import { formatCurrency, formatCurrencyFull, formatDate } from "@/lib/utils/formatters";
 import type { NetSellerStats, AcquisitionWave, OwnerStats } from "@/lib/types/api";
 
 // --- Net Sellers ---
@@ -77,9 +77,15 @@ export function AcquisitionWavesTable({ data }: WavesProps) {
                   <td className="px-3 py-1.5 whitespace-nowrap">{formatDate(row.window_start)}</td>
                   <td className="px-3 py-1.5 whitespace-nowrap">{formatDate(row.window_end)}</td>
                   <td className="px-3 py-1.5">
-                    <Badge className="text-xs">{row.acquisition_count}</Badge>
+                    <Badge className="text-xs">{row.acquisition_count.toLocaleString()}</Badge>
                   </td>
-                  <td className="px-3 py-1.5 tabular-nums">{formatCurrencyFull(row.total_spent)}</td>
+                  <td className="px-3 py-1.5 tabular-nums whitespace-nowrap">
+                    {row.total_spent > 0 ? (
+                      formatCurrency(row.total_spent)
+                    ) : (
+                      <span className="text-muted-foreground">$0 (recorded transfers)</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

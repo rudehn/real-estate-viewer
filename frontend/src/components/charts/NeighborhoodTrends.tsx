@@ -18,7 +18,7 @@ const COLORS = [
 ];
 
 export function NeighborhoodTrends({ data }: Props) {
-  // Pivot: { year -> { neighborhood -> avg_price } }
+  // Pivot: { year -> { neighborhood -> median_price } }
   const neighborhoods = Array.from(new Set(data.map((d) => d.neighborhood)));
   const years = Array.from(new Set(data.map((d) => d.year))).sort();
 
@@ -26,17 +26,17 @@ export function NeighborhoodTrends({ data }: Props) {
     const row: Record<string, number | string> = { year: String(year) };
     for (const nbhd of neighborhoods) {
       const match = data.find((d) => d.year === year && d.neighborhood === nbhd);
-      if (match) row[nbhd] = match.avg_price;
+      if (match) row[nbhd] = match.median_price;
     }
     return row;
   });
 
-  // Top 10 neighborhoods by avg price in latest year for readability
+  // Top 10 neighborhoods by median price in latest year for readability
   const latestYear = years[years.length - 1];
   const top10 = neighborhoods
     .map((nbhd) => ({
       nbhd,
-      price: data.find((d) => d.neighborhood === nbhd && d.year === latestYear)?.avg_price ?? 0,
+      price: data.find((d) => d.neighborhood === nbhd && d.year === latestYear)?.median_price ?? 0,
     }))
     .sort((a, b) => b.price - a.price)
     .slice(0, 10)
@@ -49,7 +49,7 @@ export function NeighborhoodTrends({ data }: Props) {
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <CardTitle className="text-sm font-medium">Neighborhood Price Trends</CardTitle>
+          <CardTitle className="text-sm font-medium">Neighborhood Median Price Trends</CardTitle>
           <select
             className="text-xs border rounded px-2 py-1 bg-background"
             value={selected ?? ""}
@@ -76,12 +76,13 @@ export function NeighborhoodTrends({ data }: Props) {
             {visible.map((nbhd, i) => (
               <Line
                 key={nbhd}
-                type="monotone"
+                type="linear"
                 dataKey={nbhd}
                 stroke={COLORS[i % COLORS.length]}
                 strokeWidth={1.5}
                 dot={false}
                 connectNulls
+                isAnimationActive={false}
               />
             ))}
           </LineChart>

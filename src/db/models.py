@@ -2,6 +2,7 @@ from datetime import date, datetime
 from enum import Enum
 
 from pydantic import BaseModel
+from sqlalchemy import Index, text
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -73,6 +74,23 @@ class TransactionBase(SQLModel):
 
 class Transaction(TransactionBase, table=True):
     """Representation of an item"""
+
+    # Natural key: the county has no stable row id, and the weekly ZIPs
+    # overlap both each other and the yearly files, so uniqueness lives here.
+    # conv_num is NULL in the 2001-2002 files; COALESCE keeps those rows
+    # comparable (NULLs never collide in a unique index on either dialect).
+    __table_args__ = (
+        Index(
+            "uq_transaction_natural",
+            "parcel_id",
+            "sale_date",
+            "sale_price",
+            "old_owner",
+            "new_owner",
+            text("coalesce(conv_num, -1)"),
+            unique=True,
+        ),
+    )
 
     # Define the relationship
     parcel: Parcel = Relationship(back_populates="transactions")
@@ -158,7 +176,7 @@ class NetSellerStats(BaseModel):
 class NeighborhoodTrend(BaseModel):
     neighborhood: str
     year: int
-    avg_price: float
+    median_price: float
     yoy_change_pct: float | None
 
 
@@ -179,6 +197,15 @@ class AcquisitionWave(BaseModel):
     total_spent: float
 
 
+class MarketStatsBucket(BaseModel):
+    period: str
+    period_start: date
+    transaction_count: int
+    median_price: float
+    avg_price: float
+    total_volume: float
+
+
 class OwnerParcel(BaseModel):
     parcel_id: str
     parcel_location: str
@@ -189,3 +216,6 @@ class OwnerParcel(BaseModel):
     assessed_total: float | None = None
     latitude: float | None = None
     longitude: float | None = None
+    # Parcels acquired in the same conveyance as this one (including itself).
+    # >1 means last_sale_price is the whole deal's price, not this parcel's.
+    deal_size: int = 1

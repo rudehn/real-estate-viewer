@@ -1,29 +1,47 @@
-// Interpolates between two hex colors based on a 0–1 value
-function lerpHex(colorA: string, colorB: string, t: number): string {
-  const hex = (s: string) => [
-    parseInt(s.slice(1, 3), 16),
-    parseInt(s.slice(3, 5), 16),
-    parseInt(s.slice(5, 7), 16),
-  ];
-  const [r1, g1, b1] = hex(colorA);
-  const [r2, g2, b2] = hex(colorB);
-  const rv = Math.round(r1 + (r2 - r1) * t);
-  const gv = Math.round(g1 + (g2 - g1) * t);
-  const bv = Math.round(b1 + (b2 - b1) * t);
-  return `#${[rv, gv, bv].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+// Quantile-bucketed price colors for the map. A linear scale against the max
+// price puts every normal sale in the bottom of the ramp the moment one $28M
+// outlier is on screen; quantiles give each bucket ~20% of the visible sales.
+export const PRICE_COLORS = [
+  "#bfdbfe", // blue-200
+  "#93c5fd", // blue-300
+  "#3b82f6", // blue-500
+  "#1d4ed8", // blue-700
+  "#172554", // blue-950
+];
+
+// On dark tiles the ramp runs the other way: brighter = pricier, and the
+// light-theme ramp's darkest bucket would vanish into the basemap.
+export const PRICE_COLORS_DARK = [
+  "#1e40af", // blue-800
+  "#3b82f6", // blue-500
+  "#60a5fa", // blue-400
+  "#93c5fd", // blue-300
+  "#e0f2fe", // sky-100
+];
+
+/** Upper bounds of the first N-1 quantile buckets (ascending). */
+export function computeQuantileBreaks(
+  prices: number[],
+  buckets: number = PRICE_COLORS.length
+): number[] {
+  if (prices.length === 0) return [];
+  const sorted = [...prices].sort((a, b) => a - b);
+  const breaks: number[] = [];
+  for (let i = 1; i < buckets; i++) {
+    const idx = Math.min(sorted.length - 1, Math.floor((sorted.length * i) / buckets));
+    breaks.push(sorted[idx]);
+  }
+  return breaks;
 }
 
-const LOW_COLOR = "#bfdbfe"; // blue-200
-const HIGH_COLOR = "#1d4ed8"; // blue-700
-
-export function priceToColor(
+export function priceToQuantileColor(
   price: number,
-  min: number,
-  max: number
+  breaks: number[],
+  colors: string[] = PRICE_COLORS
 ): string {
-  if (max <= min) return LOW_COLOR;
-  const t = Math.max(0, Math.min(1, (price - min) / (max - min)));
-  return lerpHex(LOW_COLOR, HIGH_COLOR, t);
+  let bucket = 0;
+  while (bucket < breaks.length && price > breaks[bucket]) bucket++;
+  return colors[Math.min(bucket, colors.length - 1)];
 }
 
 export function getMarkerRadius(acres: number): number {

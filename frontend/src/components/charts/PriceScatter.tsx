@@ -20,8 +20,14 @@ const CLASS_COLORS: Record<string, string> = {
   Utilities: "#eab308",
 };
 
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * p));
+  return sorted[idx];
+}
+
 export function PriceScatter({ transactions }: Props) {
-  const data = transactions.map((t) => ({
+  const all = transactions.map((t) => ({
     x: new Date(t.sale_date + "T00:00:00").getTime(),
     y: t.sale_price,
     label: t.parcel_location,
@@ -29,10 +35,30 @@ export function PriceScatter({ transactions }: Props) {
     cls: t.parcel_class,
   }));
 
+  // A single $28M outlier would crush every other point onto the baseline;
+  // clip the axis at the 99th percentile and say how many points are hidden.
+  const sortedPrices = all.map((d) => d.y).sort((a, b) => a - b);
+  const cap = percentile(sortedPrices, 0.99);
+  const data = all.filter((d) => d.y <= cap);
+  const hidden = all.length - data.length;
+
+  // One tick per year boundary; the default tick picker repeats year labels.
+  const yearTicks: number[] = [];
+  if (data.length > 0) {
+    const xs = data.map((d) => d.x);
+    const first = new Date(Math.min(...xs)).getFullYear();
+    const last = new Date(Math.max(...xs)).getFullYear();
+    for (let y = first; y <= last + 1; y++) yearTicks.push(new Date(y, 0, 1).getTime());
+  }
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium">Sale Price Timeline</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Most recent {all.length.toLocaleString()} sales in range
+          {hidden > 0 && ` · ${hidden} above ${formatCurrency(cap)} not shown`}
+        </p>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={260}>
@@ -41,7 +67,8 @@ export function PriceScatter({ transactions }: Props) {
             <XAxis
               dataKey="x"
               type="number"
-              domain={["auto", "auto"]}
+              domain={["dataMin", "dataMax"]}
+              ticks={yearTicks}
               tickFormatter={(v) => new Date(v).getFullYear().toString()}
               tick={{ fontSize: 11 }}
               name="Date"
@@ -72,6 +99,7 @@ export function PriceScatter({ transactions }: Props) {
               data={data}
               fill="#3b82f6"
               opacity={0.6}
+              isAnimationActive={false}
               shape={(props: unknown) => {
                 const { cx, cy, payload } = props as { cx: number; cy: number; payload: { cls: string } };
                 return (

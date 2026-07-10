@@ -23,11 +23,11 @@ function OwnerChart({ data, title, color }: { data: OwnerStats[]; title: string;
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <ResponsiveContainer width="100%" height={320}>
+        <ResponsiveContainer width="100%" height={360}>
           <BarChart data={chartData} layout="vertical" margin={{ left: 4, right: 20, top: 4, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-muted" />
             <XAxis type="number" tick={{ fontSize: 10 }} />
-            <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={130} />
+            <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={150} interval={0} />
             <Tooltip
               formatter={(v: number, n: string) => [
                 n === "count" ? `${v} transactions` : formatCurrency(v),
@@ -35,7 +35,7 @@ function OwnerChart({ data, title, color }: { data: OwnerStats[]; title: string;
               ]}
               labelStyle={{ fontSize: 11 }}
             />
-            <Bar dataKey="count" fill={color} radius={[0, 2, 2, 0]} />
+            <Bar dataKey="count" fill={color} radius={[0, 2, 2, 0]} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       </CardContent>

@@ -27,6 +27,22 @@ def _parcel_upsert_stmt(chunk: list[dict]):
     return insert(Parcel).values(chunk).on_conflict_do_nothing(index_elements=["parcel_id"])
 
 
+async def _insert_transactions(session: AsyncSession, transactions: list[Transaction]) -> None:
+    """Insert transactions, silently skipping rows already in the DB.
+
+    The weekly ZIPs overlap each other and the yearly files, so the same sale
+    arrives many times; the natural-key unique index plus ON CONFLICT DO
+    NOTHING makes ingest idempotent at the row level.
+    """
+    insert = pg_insert if engine.dialect.name == "postgresql" else sqlite_insert
+    rows = [t.model_dump(exclude={"id"}) for t in transactions]
+    # Chunk to stay under per-statement bind-parameter limits (~22 params/row).
+    chunk_size = 500
+    for i in range(0, len(rows), chunk_size):
+        chunk = rows[i : i + chunk_size]
+        await session.exec(insert(Transaction).values(chunk).on_conflict_do_nothing())
+
+
 async def ingest_data_files(directory: str):
     await ingest_yearly_files(directory + "/yearly/**/SALES_*.csv")
 
@@ -133,11 +149,9 @@ async def ingest_yearly_file(filename: str):
                 chunk = parcel_values[i : i + chunk_size]
                 await session.exec(_parcel_upsert_stmt(chunk))
 
-        # 3. Bulk Insert Transactions
+        # 3. Bulk insert transactions (duplicates across files are skipped)
         if mappings:
-            # SQLModel bulk insert for SQLite isn't fully async optimized,
-            # but add_all + commit works well
-            session.add_all(mappings)
+            await _insert_transactions(session, mappings)
 
             # 5. Mark file as ingested
             session.add(DataFile(filename=filename, ingested_at=datetime.datetime.now()))
@@ -219,7 +233,8 @@ async def ingest_weekly_data() -> None:
 
     - Skips ZIPs already tracked in DataFile (file-level dedup).
     - Downloads new ZIPs concurrently, then inserts each batch sequentially.
-    - Skips individual rows whose conv_num already exists (row-level dedup).
+    - Rows already present are skipped via the natural-key unique index
+      (weekly files overlap each other and the yearly files).
     """
     from services.data_retrieval import download_weekly_zips, get_weekly_zip_urls
 
@@ -278,7 +293,7 @@ async def _ingest_weekly_zip(filename: str, raw_bytes: bytes) -> None:
             chunk = parcel_values[i : i + chunk_size]
             await session.exec(_parcel_upsert_stmt(chunk))
 
-        session.add_all(transactions)
+        await _insert_transactions(session, transactions)
 
         session.add(DataFile(filename=filename, ingested_at=datetime.datetime.now()))
         await session.commit()

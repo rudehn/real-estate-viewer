@@ -1,8 +1,7 @@
 "use client";
 
-import { buildSeasonalData } from "@/lib/utils/chartHelpers";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { TransactionResponse } from "@/lib/types/api";
+import type { MarketStatsBucket } from "@/lib/types/api";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const LOW = [219, 234, 254]; // blue-100
@@ -13,16 +12,23 @@ function lerp(a: number[], b: number[], t: number) {
 }
 
 interface Props {
-  transactions: TransactionResponse[];
+  /** Monthly market-stats buckets ("YYYY-MM" periods). */
+  monthly: MarketStatsBucket[];
 }
 
-export function SeasonalHeatmap({ transactions }: Props) {
-  const cells = buildSeasonalData(transactions);
-  if (cells.length === 0) return null;
+export function SeasonalHeatmap({ monthly }: Props) {
+  if (monthly.length === 0) return null;
 
-  const years = Array.from(new Set(cells.map((c) => c.year))).sort();
-  const maxCount = Math.max(...cells.map((c) => c.count), 1);
-  const cellMap = new Map(cells.map((c) => [`${c.year}-${c.month}`, c.count]));
+  const cellMap = new Map<string, number>();
+  const yearSet = new Set<number>();
+  for (const b of monthly) {
+    const [y, m] = b.period.split("-").map(Number);
+    if (!y || !m) continue;
+    yearSet.add(y);
+    cellMap.set(`${y}-${m}`, b.transaction_count);
+  }
+  const years = Array.from(yearSet).sort();
+  const maxCount = Math.max(...Array.from(cellMap.values()), 1);
 
   const CELL_W = 18;
   const CELL_H = 14;
@@ -34,7 +40,7 @@ export function SeasonalHeatmap({ transactions }: Props) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Seasonal Activity (Transactions by Month)</CardTitle>
+        <CardTitle className="text-sm font-medium">Seasonal Activity (Market Sales by Month)</CardTitle>
       </CardHeader>
       <CardContent className="overflow-x-auto">
         <svg width={SVG_W} height={SVG_H}>
@@ -82,7 +88,7 @@ export function SeasonalHeatmap({ transactions }: Props) {
                   fill={`rgb(${r},${g},${b})`}
                   rx={1}
                 >
-                  <title>{`${MONTHS[mi]} ${yr}: ${count} transactions`}</title>
+                  <title>{`${MONTHS[mi]} ${yr}: ${count} market sales`}</title>
                 </rect>
               );
             })

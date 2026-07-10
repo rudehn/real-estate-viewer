@@ -140,7 +140,7 @@ export interface NetSellerStats {
 export interface NeighborhoodTrend {
   neighborhood: string;
   year: number;
-  avg_price: number;
+  median_price: number;
   yoy_change_pct: number | null;
 }
 
@@ -171,6 +171,19 @@ export interface OwnerParcel {
   assessed_total: number | null;
   latitude: number | null;
   longitude: number | null;
+  /** Parcels acquired in the same conveyance (deal price covers all of them). */
+  deal_size: number;
+}
+
+export type Granularity = "month" | "quarter" | "year" | "all";
+
+export interface MarketStatsBucket {
+  period: string;
+  period_start: string;
+  transaction_count: number;
+  median_price: number;
+  avg_price: number;
+  total_volume: number;
 }
 
 // Derived types
