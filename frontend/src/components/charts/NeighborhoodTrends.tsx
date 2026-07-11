@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils/formatters";
+import { neighborhoodLabel, neighborhoodName } from "@/lib/utils/neighborhoods";
 import type { NeighborhoodTrend } from "@/lib/types/api";
 
 interface Props {
@@ -31,16 +32,16 @@ export function NeighborhoodTrends({ data }: Props) {
     return row;
   });
 
-  // Top 10 neighborhoods by median price in latest year for readability
-  const latestYear = years[years.length - 1];
-  const top10 = neighborhoods
-    .map((nbhd) => ({
-      nbhd,
-      price: data.find((d) => d.neighborhood === nbhd && d.year === latestYear)?.median_price ?? 0,
-    }))
-    .sort((a, b) => b.price - a.price)
+  // Default to the 10 most active neighborhoods: picking by price surfaces
+  // tiny luxury subdivisions whose 5-sale medians dwarf everything else.
+  const salesByNbhd = new Map<string, number>();
+  for (const d of data) {
+    salesByNbhd.set(d.neighborhood, (salesByNbhd.get(d.neighborhood) ?? 0) + d.transaction_count);
+  }
+  const top10 = Array.from(salesByNbhd.entries())
+    .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
-    .map((x) => x.nbhd);
+    .map(([nbhd]) => nbhd);
 
   const [selected, setSelected] = useState<string | null>(null);
   const visible = selected ? [selected] : top10;
@@ -56,9 +57,11 @@ export function NeighborhoodTrends({ data }: Props) {
             onChange={(e) => setSelected(e.target.value || null)}
           >
             <option value="">Top 10 neighborhoods</option>
-            {neighborhoods.sort().map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
+            {[...neighborhoods]
+              .sort((a, b) => neighborhoodName(a).localeCompare(neighborhoodName(b)))
+              .map((n) => (
+                <option key={n} value={n}>{neighborhoodLabel(n, 40)}</option>
+              ))}
           </select>
         </div>
       </CardHeader>
@@ -69,10 +72,10 @@ export function NeighborhoodTrends({ data }: Props) {
             <XAxis dataKey="year" tick={{ fontSize: 11 }} />
             <YAxis tickFormatter={(v: number) => formatCurrency(v)} tick={{ fontSize: 11 }} width={60} />
             <Tooltip
-              formatter={(v: number, name: string) => [formatCurrency(v), name]}
+              formatter={(v: number, name: string) => [formatCurrency(v), neighborhoodLabel(name, 30)]}
               labelStyle={{ fontSize: 12 }}
             />
-            <Legend wrapperStyle={{ fontSize: 10 }} />
+            <Legend wrapperStyle={{ fontSize: 10 }} formatter={(v: string) => neighborhoodLabel(v, 20)} />
             {visible.map((nbhd, i) => (
               <Line
                 key={nbhd}

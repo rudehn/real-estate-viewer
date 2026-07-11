@@ -1,5 +1,7 @@
 *.code-workspace
-data
+data/
+!frontend/src/lib/data/
+!frontend/src/lib/data/**
 database.db
 **/__pycache__/*
 .venv

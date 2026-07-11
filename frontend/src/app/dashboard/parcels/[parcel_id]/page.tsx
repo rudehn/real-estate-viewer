@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OwnerLink } from "@/components/OwnerLink";
 import { formatCurrencyFull, formatDate } from "@/lib/utils/formatters";
+import { neighborhoodName } from "@/lib/utils/neighborhoods";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -83,7 +84,9 @@ export default function ParcelDetailPage() {
             <span>{latest.acres.toFixed(2)} acres</span>
             <span className="text-muted-foreground">Parcel ID: {parcelId}</span>
             {latest.neighborhood && (
-              <span className="text-muted-foreground">Neighborhood: {latest.neighborhood}</span>
+              <span className="text-muted-foreground" title={latest.neighborhood}>
+                Neighborhood: {neighborhoodName(latest.neighborhood)}
+              </span>
             )}
           </CardContent>
         </Card>

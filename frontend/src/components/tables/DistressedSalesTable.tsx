@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrencyFull, formatDate } from "@/lib/utils/formatters";
+import { neighborhoodName } from "@/lib/utils/neighborhoods";
 import type { DistressedSale } from "@/lib/types/api";
 import Link from "next/link";
 
@@ -46,7 +47,9 @@ export function DistressedSalesTable({ data }: Props) {
                     </Badge>
                   </td>
                   <td className="px-3 py-1.5 max-w-[140px] truncate">{row.new_owner}</td>
-                  <td className="px-3 py-1.5">{row.neighborhood ?? "—"}</td>
+                  <td className="px-3 py-1.5 max-w-[140px] truncate" title={row.neighborhood ?? undefined}>
+                    {neighborhoodName(row.neighborhood)}
+                  </td>
                 </tr>
               ))}
             </tbody>

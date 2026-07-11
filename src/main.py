@@ -371,31 +371,45 @@ async def get_neighborhood_stats(
     session: AsyncSession = Depends(get_session),
 ):
     """Aggregate sales statistics grouped by neighborhood code."""
+    priced = select(
+        Transaction.neighborhood.label("neighborhood"),
+        Transaction.sale_price.label("price"),
+        func.row_number()
+        .over(partition_by=Transaction.neighborhood, order_by=Transaction.sale_price)
+        .label("rn"),
+        func.count().over(partition_by=Transaction.neighborhood).label("cnt"),
+    ).where(Transaction.neighborhood.is_not(None))
+    priced = priced.where(market_sale_criteria() if market_only else Transaction.sale_price > 0)
+    if sale_date__gte:
+        priced = priced.where(Transaction.sale_date >= sale_date__gte)
+    if sale_date__lte:
+        priced = priced.where(Transaction.sale_date <= sale_date__lte)
+    if parcel_class:
+        priced = priced.where(Transaction.parcel_class == parcel_class)
+    priced = priced.subquery()
+
+    is_median_row = or_(
+        priced.c.rn == (priced.c.cnt + 1) // 2,
+        priced.c.rn == (priced.c.cnt + 2) // 2,
+    )
     query = (
         select(
-            Transaction.neighborhood.label("neighborhood"),
-            func.count(Transaction.id).label("transaction_count"),
-            func.sum(Transaction.sale_price).label("total_volume"),
-            func.avg(Transaction.sale_price).label("avg_price"),
-            func.min(Transaction.sale_price).label("min_price"),
-            func.max(Transaction.sale_price).label("max_price"),
+            priced.c.neighborhood,
+            func.count().label("transaction_count"),
+            func.sum(priced.c.price).label("total_volume"),
+            func.avg(priced.c.price).label("avg_price"),
+            func.avg(case((is_median_row, priced.c.price))).label("median_price"),
+            func.min(priced.c.price).label("min_price"),
+            func.max(priced.c.price).label("max_price"),
         )
-        .where(Transaction.neighborhood.is_not(None))
-        .where(market_sale_criteria() if market_only else Transaction.sale_price > 0)
-        .group_by(Transaction.neighborhood)
-        .having(func.count(Transaction.id) >= min_transactions)
+        .group_by(priced.c.neighborhood)
+        .having(func.count() >= min_transactions)
         .order_by(desc("transaction_count"))
         .limit(limit)
     )
-    if sale_date__gte:
-        query = query.where(Transaction.sale_date >= sale_date__gte)
-    if sale_date__lte:
-        query = query.where(Transaction.sale_date <= sale_date__lte)
-    if parcel_class:
-        query = query.where(Transaction.parcel_class == parcel_class)
 
     result = await session.exec(query)
-    return result.all()
+    return result.mappings().all()
 
 
 @app.get("/parcels/{parcel_id}/history", response_model=list[Transaction])
@@ -711,6 +725,7 @@ async def get_neighborhood_trends(
             curr.c.neighborhood,
             curr.c.year,
             curr.c.median_price,
+            curr.c.cnt.label("transaction_count"),
             yoy_expr,
         )
         .outerjoin(

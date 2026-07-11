@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { OwnerLink } from "@/components/OwnerLink";
 import { formatCurrencyFull, formatDate } from "@/lib/utils/formatters";
+import { neighborhoodName } from "@/lib/utils/neighborhoods";
 import type { TransactionResponse } from "@/lib/types/api";
 import Link from "next/link";
 
@@ -72,8 +73,12 @@ const COLUMNS = [
     ),
   }),
   col.accessor("neighborhood", {
-    header: "Nbhd",
-    cell: (i) => i.getValue() ?? "—",
+    header: "Neighborhood",
+    cell: (i) => (
+      <span className="max-w-[140px] block truncate" title={i.getValue() ?? undefined}>
+        {neighborhoodName(i.getValue())}
+      </span>
+    ),
   }),
 ];
 

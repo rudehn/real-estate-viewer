@@ -7,13 +7,14 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/utils/formatters";
+import { neighborhoodLabel, neighborhoodName } from "@/lib/utils/neighborhoods";
 import type { NeighborhoodStats } from "@/lib/types/api";
 
-type SortKey = "transaction_count" | "avg_price" | "total_volume";
+type SortKey = "transaction_count" | "median_price" | "total_volume";
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
-  { value: "transaction_count", label: "Volume" },
-  { value: "avg_price", label: "Avg $" },
+  { value: "transaction_count", label: "Sales" },
+  { value: "median_price", label: "Median $" },
   { value: "total_volume", label: "Total $" },
 ];
 
@@ -24,7 +25,10 @@ interface Props {
 export function NeighborhoodRankings({ data }: Props) {
   const [sortBy, setSortBy] = useState<SortKey>("transaction_count");
 
-  const sorted = [...data].sort((a, b) => b[sortBy] - a[sortBy]).slice(0, 20);
+  const sorted = [...data]
+    .sort((a, b) => b[sortBy] - a[sortBy])
+    .slice(0, 20)
+    .map((d) => ({ ...d, label: neighborhoodLabel(d.neighborhood, 26) }));
   const formatY = (v: number) => (sortBy === "transaction_count" ? `${v}` : formatCurrency(v));
 
   return (
@@ -57,9 +61,12 @@ export function NeighborhoodRankings({ data }: Props) {
           <BarChart data={sorted} layout="vertical" margin={{ left: 12, right: 20, top: 4, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
             <XAxis type="number" tickFormatter={formatY} tick={{ fontSize: 10 }} />
-            <YAxis type="category" dataKey="neighborhood" tick={{ fontSize: 10 }} width={70} interval={0} />
+            <YAxis type="category" dataKey="label" tick={{ fontSize: 10 }} width={150} interval={0} />
             <Tooltip
-              formatter={(v: number) => [formatY(v), sortBy.replace(/_/g, " ")]}
+              formatter={(v: number) => [formatY(v), SORT_OPTIONS.find((o) => o.value === sortBy)?.label]}
+              labelFormatter={(_, payload) =>
+                payload?.[0] ? neighborhoodName((payload[0].payload as NeighborhoodStats).neighborhood) : ""
+              }
               labelStyle={{ fontSize: 12 }}
             />
             <Bar dataKey={sortBy} radius={[0, 2, 2, 0]} isAnimationActive={false}>

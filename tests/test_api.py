@@ -160,6 +160,7 @@ async def test_neighborhoods_groups_correctly(client, session):
     assert results[0]["neighborhood"] == "1010"
     assert results[0]["transaction_count"] == 2
     assert results[0]["total_volume"] == 300000.0
+    assert results[0]["median_price"] == 150000.0
     assert results[1]["neighborhood"] == "2020"
 
 

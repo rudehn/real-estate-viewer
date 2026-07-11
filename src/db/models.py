@@ -128,6 +128,7 @@ class NeighborhoodStats(BaseModel):
     transaction_count: int
     total_volume: float
     avg_price: float
+    median_price: float
     min_price: float
     max_price: float
 
@@ -177,6 +178,7 @@ class NeighborhoodTrend(BaseModel):
     neighborhood: str
     year: int
     median_price: float
+    transaction_count: int
     yoy_change_pct: float | None
 
 

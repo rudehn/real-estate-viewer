@@ -69,6 +69,7 @@ export interface NeighborhoodStats {
   transaction_count: number;
   total_volume: number;
   avg_price: number;
+  median_price: number;
   min_price: number;
   max_price: number;
 }
@@ -141,6 +142,7 @@ export interface NeighborhoodTrend {
   neighborhood: string;
   year: number;
   median_price: number;
+  transaction_count: number;
   yoy_change_pct: number | null;
 }
 
