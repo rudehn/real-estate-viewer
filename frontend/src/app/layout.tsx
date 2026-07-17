@@ -13,7 +13,11 @@ export const metadata: Metadata = {
   description: "Montgomery County, OH real estate transaction explorer",
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: "/icons/icon.svg",
+    // SVG for browsers that support it, PNG for Safari.
+    icon: [
+      { url: "/icons/icon.svg", type: "image/svg+xml" },
+      { url: "/icons/icon-192.png", type: "image/png", sizes: "192x192" },
+    ],
     apple: "/icons/icon-180.png",
   },
   appleWebApp: {
