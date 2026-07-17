@@ -25,9 +25,11 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
-# Standalone output bundles a minimal node_modules + server.js.
+# Standalone output bundles a minimal node_modules + server.js. It does NOT
+# include public/ or .next/static; Next.js requires copying those manually.
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
+COPY --from=build /app/public ./public
 
 # Run as the built-in unprivileged node user.
 USER node
