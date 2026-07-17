@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,21 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 export const metadata: Metadata = {
   title: "Real Estate Analytics",
   description: "Montgomery County, OH real estate transaction explorer",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/icons/icon.svg",
+    apple: "/icons/icon-180.png",
+  },
+  appleWebApp: {
+    capable: true,
+    title: "Real Estate",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#2e5d3d",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
