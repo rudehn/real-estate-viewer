@@ -12,24 +12,106 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Two images x two architectures, each on a native runner. QEMU emulation is
+  # not an option here (it crashes on `npm ci`), so amd64 and arm64 are built
+  # on hardware that matches them and stitched into one manifest list by
+  # `merge` below. amd64 is what the Linux home server runs; arm64 keeps an
+  # Apple Silicon Mac working as a deployment target.
   build:
-    # Native arm64 runner: the home-server Mac is Apple Silicon, so we build
-    # arm64 images directly (no QEMU emulation, which crashes on `npm ci`).
-    runs-on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
     strategy:
+      fail-fast: false
       matrix:
-        include:
+        image:
           - name: backend
             context: .
             dockerfile: Dockerfile.backend
           - name: frontend
             context: frontend
             dockerfile: frontend/Dockerfile
+        platform: [linux/amd64, linux/arm64]
+        # `include` here only augments the existing image x platform combos
+        # with the right runner - it must not introduce new keys as its own
+        # dimension, or it would append standalone jobs instead of pairing.
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
+      - name: Derive a filename-safe platform tag
+        run: echo "PLATFORM_PAIR=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+        env:
+          PLATFORM: ${{ matrix.platform }}
+
       - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/real-estate-viewer-${{ matrix.image.name }}
+
+      # Pushed by digest only - no tag. Tags are applied once, by `merge`, so a
+      # half-finished matrix can never leave :latest on a single-arch image.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/real-estate-viewer-${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.platform }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image.name }}-${{ env.PLATFORM_PAIR }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # One merge per image: collect that image's per-arch digests into a single
+  # multi-arch manifest list and apply the real tags to it.
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [backend, frontend]
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/real-estate-viewer-${{ matrix.name }}
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.name }}-*
+          merge-multiple: true
 
       - uses: docker/setup-buildx-action@v3
 
@@ -44,19 +126,23 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/real-estate-viewer-${{ matrix.name }}
+          images: ${{ env.IMAGE }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+
+      - name: Verify both architectures are present
+        run: |
+          ref="${{ env.IMAGE }}:${{ steps.meta.outputs.version }}"
+          docker buildx imagetools inspect "$ref" --raw \
+            | jq -e '[.manifests[].platform.architecture]
+                     | (index("amd64") != null) and (index("arm64") != null)' > /dev/null \
+            || { echo "::error::manifest list for $ref is missing amd64 or arm64"; exit 1; }
+          docker buildx imagetools inspect "$ref"
