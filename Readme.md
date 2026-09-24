@@ -32,7 +32,12 @@ When `AUTO_INGEST=true`, the backend runs a background loop (`src/services/popul
 3. Downloads and ingests any new weekly sales ZIPs.
 4. Geocodes parcels missing coordinates via the US Census batch API.
 
-Every step is idempotent (already-ingested files and already-geocoded parcels are skipped), so the deployed database fills itself with no manual steps.
+Every step is idempotent (files whose exact content was already ingested and already-geocoded parcels are skipped), so the deployed database fills itself with no manual steps.
+A failing step is logged and the remaining steps still run.
+
+The county publishes each sale several times: in weekly ZIPs shortly after it is recorded, then in every monthly re-export of the yearly file.
+The yearly export is authoritative (corrected buyer names, validity codes, and the neighborhood and deed columns that weekly files lack), so yearly rows overwrite stored ones, while weekly rows only fill in sales newer than the last yearly export.
+See the top of `src/db/ingestors.py` for the exact rules.
 
 ## Local development
 

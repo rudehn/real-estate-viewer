@@ -237,54 +237,6 @@ async def test_same_row_in_two_files_is_inserted_once():
     assert sorted(t.sale_price for t in txns) == [150000.0, 225000.0]
 
 
-async def test_maintenance_dedupes_existing_rows():
-    """ensure_transaction_dedup removes pre-index duplicates and is idempotent."""
-    from sqlalchemy import text as sa_text
-    from sqlalchemy.ext.asyncio import create_async_engine
-    from sqlalchemy.orm import sessionmaker
-    from sqlmodel import SQLModel, select
-    from sqlmodel.ext.asyncio.session import AsyncSession
-
-    import db.maintenance as maintenance_module
-    from db.models import Parcel, Transaction
-
-    test_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
-        # Simulate a database from before the unique index existed
-        await conn.execute(sa_text("DROP INDEX uq_transaction_natural"))
-
-    async_session = sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-    async with async_session() as s:
-        s.add(Parcel(parcel_id="P1", parcel_location="1 ELM ST",
-                     parcel_class=ParcelClass.R, acres=0.2))
-        for _ in range(3):
-            s.add(Transaction(
-                parcel_id="P1", conv_num=42, sale_date=datetime.date(2023, 1, 1),
-                sale_price=100000.0, old_owner="A", new_owner="B",
-                parcel_location="1 ELM ST", mailing_name="B", mailing_address="X",
-                parcel_class=ParcelClass.R, acres=0.2,
-                taxable_land=1, taxable_building=1, taxable_total=2,
-                assessed_land=None, assessed_building=None, assessed_total=None,
-                sale_type=None, sale_validity=None, deed_reference=None,
-                neighborhood=None,
-            ))
-        await s.commit()
-
-    original_engine = maintenance_module.engine
-    maintenance_module.engine = test_engine
-    try:
-        await maintenance_module.ensure_transaction_dedup()
-        await maintenance_module.ensure_transaction_dedup()  # idempotent
-    finally:
-        maintenance_module.engine = original_engine
-
-    async with async_session() as s:
-        txns = (await s.exec(select(Transaction))).all()
-    await test_engine.dispose()
-    assert len(txns) == 1
-
-
 # ---------------------------------------------------------------------------
 # Encoding: the county exports are not always UTF-8
 # ---------------------------------------------------------------------------
@@ -363,20 +315,5 @@ def test_decode_csv_prefers_utf8():
     """Genuine UTF-8 (with or without BOM) must not be mis-decoded as cp1252."""
     from db.ingestors import _decode_csv
 
-    assert _decode_csv("﻿PARID,NAME\nA1,JOSÉ\n".encode()) == "PARID,NAME\nA1,JOSÉ\n"
+    assert _decode_csv("\ufeffPARID,NAME\nA1,JOSÉ\n".encode()) == "PARID,NAME\nA1,JOSÉ\n"
     assert _decode_csv("PARID,NAME\nA1,JOSÉ\n".encode("cp1252")) == "PARID,NAME\nA1,JOSÉ\n"
-
-
-async def test_natural_key_index_is_detected_on_fresh_db():
-    """The expression index must be recognised, or the full-table dedupe DELETE
-    reruns on every startup (SQLite reflection skips expression indexes)."""
-    from sqlalchemy.ext.asyncio import create_async_engine
-    from sqlmodel import SQLModel
-
-    import db.maintenance as maintenance_module
-
-    test_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with test_engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
-        assert await conn.run_sync(maintenance_module._has_natural_key_index)
-    await test_engine.dispose()

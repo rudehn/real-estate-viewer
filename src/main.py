@@ -45,8 +45,8 @@ DATA_DIR = FilePath(os.getenv("DATA_DIR", str(FilePath(__file__).parent.parent /
 async def lifespan(app: FastAPI):
     logger.info("Server is starting...")
     await init_db()
-    from db.maintenance import ensure_transaction_dedup
-    await ensure_transaction_dedup()
+    from db.maintenance import ensure_schema
+    await ensure_schema()
     logger.info("Database tables ready.")
 
     # When AUTO_INGEST is enabled (production), self-populate the DB in the

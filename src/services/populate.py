@@ -9,8 +9,9 @@ app is deployed - no manual CLI steps required:
   3. Download and ingest any new weekly sales ZIPs.
   4. Geocode parcels that are missing coordinates (for the map view).
 
-Every step is idempotent: already-ingested files are skipped (DataFile dedup)
-and already-geocoded parcels are skipped, so re-runs are cheap and safe. The
+Every step is idempotent: files whose exact content was already ingested are
+skipped (DataFile name + content hash) and already-geocoded parcels are
+skipped, so re-runs are cheap and safe. The
 backend runs this once on startup and then on a repeating interval (see
 `run_population_loop`), guarded by the AUTO_INGEST env var.
 """
