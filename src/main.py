@@ -26,6 +26,7 @@ from db.sqlutil import date_add_days, days_between
 from services.owner_names import merge_owner_rows
 from db.models import (
     OwnerStats, NeighborhoodStats, Transaction, DataFile, TransactionListModel,
+    TransactionResponse,
     Parcel, ParcelListModel, ParcelClass,
     FlipResult, DistressedSale, OwnerHoldings, NetSellerStats,
     NeighborhoodTrend, StaleParcel, AcquisitionWave, OwnerParcel,
@@ -182,9 +183,12 @@ async def get_transactions(offset: int = 0, limit: int = 50, is_geocoded: bool =
 
     return TransactionListModel(entities=transactions, count=total_count)
 
-@app.get("/transactions/{transaction_id}", response_model=Transaction)
-def get_transaction(transaction_id: int, session: AsyncSession = Depends(get_session)):
-    transaction = session.get(Transaction, transaction_id)
+@app.get("/transactions/{transaction_id}", response_model=TransactionResponse)
+async def get_transaction(transaction_id: int, session: AsyncSession = Depends(get_session)):
+    transaction = await session.get(
+        Transaction, transaction_id,
+        options=[selectinload(Transaction.parcel)], populate_existing=True,
+    )
     if not transaction:
         raise HTTPException(status_code=404, detail="Not Found")
     return transaction

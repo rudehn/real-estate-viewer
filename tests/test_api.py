@@ -69,6 +69,24 @@ async def test_transactions_returns_inserted_record(client, session):
     assert data["entities"][0]["sale_price"] == 200000.0
 
 
+async def test_transaction_by_id(client, session):
+    session.add(make_parcel())
+    txn = make_transaction()
+    session.add(txn)
+    await session.commit()
+
+    response = await client.get(f"/transactions/{txn.id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["sale_price"] == 200000.0
+    assert data["parcel"]["parcel_location"] == "123 MAIN ST"
+
+
+async def test_transaction_by_id_unknown(client):
+    response = await client.get("/transactions/999")
+    assert response.status_code == 404
+
+
 async def test_transactions_filter_by_parcel_class(client, session):
     parcel_r = make_parcel(parcel_id="P001", parcel_class=ParcelClass.R)
     parcel_c = make_parcel(parcel_id="P002", parcel_location="456 OAK ST", parcel_class=ParcelClass.C)
