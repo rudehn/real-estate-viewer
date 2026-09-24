@@ -1,10 +1,11 @@
-import asyncio
 import csv
 import io
+
 import httpx
-from sqlmodel import select, col
-from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
 from db.engine import engine
 from db.models import Parcel
 from logging_config import get_logger
@@ -36,7 +37,7 @@ async def geocode_parcels(batch_size: int = CENSUS_BATCH_LIMIT) -> int:
     async with async_session() as session:
         statement = (
             select(Parcel)
-            .where(Parcel.latitude == None)
+            .where(Parcel.latitude.is_(None))
             .limit(batch_size)
         )
         result = await session.exec(statement)
@@ -69,7 +70,8 @@ async def geocode_parcels(batch_size: int = CENSUS_BATCH_LIMIT) -> int:
                 return 0
 
         # Parse the response CSV.
-        # Columns: ID, Input Address, Match, Match type, Matched address, Coords (lon,lat), Tiger ID, Side
+        # Columns: ID, Input Address, Match, Match type, Matched address,
+        # Coords (lon,lat), Tiger ID, Side
         coords_by_id: dict[str, tuple[float, float]] = {}
         reader = csv.reader(io.StringIO(response.text))
         for row in reader:

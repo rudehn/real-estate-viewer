@@ -11,7 +11,7 @@ class ParcelClass(Enum):
     A="Agricultural"
     C="Commercial"
     E="Exempt"
-    I="Industrial"
+    I="Industrial"  # noqa: E741 - the county's class code
     R="Residential"
     U="Utilities"
 

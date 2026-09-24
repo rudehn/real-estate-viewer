@@ -1,39 +1,54 @@
 
 import asyncio
 import os
-from enum import Enum
-from typing import Literal
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from pathlib import Path as FilePath
+from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Path, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from sqlmodel import Field, Session, and_, select, desc
-from sqlmodel.ext.asyncio.session import AsyncSession
-# from fastapi_filters import create_filters, create_filters_from_model, FilterValues
-# from fastapi_filters.ext.sqlalchemy import apply_filters
-from sqlalchemy import func, Integer, cast, Date, extract, case, literal, or_
-from sqlalchemy.orm import selectinload
-
-from fastapi_filter import FilterDepends, with_prefix
+from fastapi_filter import FilterDepends
 from fastapi_filter.contrib.sqlalchemy import Filter
 
-from db.criteria import MIN_MARKET_PRICE, market_sale_criteria
-from db.engine import engine, get_session, init_db
-from db.sqlutil import date_add_days, days_between
-from services.owner_names import merge_owner_rows
+# from fastapi_filters import create_filters, create_filters_from_model, FilterValues
+# from fastapi_filters.ext.sqlalchemy import apply_filters
+from sqlalchemy import Integer, case, cast, extract, func, literal, or_
+from sqlalchemy.orm import selectinload
+from sqlmodel import and_, desc, select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from db.criteria import market_sale_criteria
+from db.engine import get_session, init_db
 from db.models import (
-    OwnerStats, NeighborhoodStats, Transaction, DataFile, TransactionListModel,
+    AcquisitionWave,
+    CompSale,
+    DataFile,
+    DataHealth,
+    DistressedSale,
+    FlipResult,
+    MarketStatsBucket,
+    NeighborhoodStats,
+    NeighborhoodTrend,
+    NetSellerStats,
+    OwnerHoldings,
+    OwnerParcel,
+    OwnerProfile,
+    OwnerStats,
+    OwnerYearActivity,
+    Parcel,
+    ParcelClass,
+    ParcelComps,
+    ParcelListModel,
+    RelatedOwner,
+    StaleParcel,
+    Transaction,
+    TransactionListModel,
     TransactionResponse,
-    Parcel, ParcelListModel, ParcelClass,
-    FlipResult, DistressedSale, OwnerHoldings, NetSellerStats,
-    NeighborhoodTrend, StaleParcel, AcquisitionWave, OwnerParcel,
-    MarketStatsBucket, OwnerProfile, OwnerYearActivity, RelatedOwner,
-    CompSale, ParcelComps, DataHealth,
 )
-from logging_config import get_logger, configure_logging
+from db.sqlutil import date_add_days, days_between
+from logging_config import configure_logging, get_logger
+from services.owner_names import merge_owner_rows
 
 configure_logging()
 logger = get_logger(__name__)
@@ -419,14 +434,20 @@ async def get_neighborhood_stats(
 @app.get("/parcels/{parcel_id}/history", response_model=list[Transaction])
 async def get_parcel_history(parcel_id: str, session: AsyncSession = Depends(get_session)):
     """View the full sales history of a specific parcel to spot 'Flips'."""
-    query = select(Transaction).where(Transaction.parcel_id == parcel_id).order_by(Transaction.sale_date.desc())
+    query = (
+        select(Transaction)
+        .where(Transaction.parcel_id == parcel_id)
+        .order_by(Transaction.sale_date.desc())
+    )
     result = await session.exec(query)
     return result.all()
 
 
 @app.get("/analytics/flips", response_model=list[FlipResult])
 async def get_flips(
-    max_hold_days: int = Query(730, description="Max days between buy and sell to qualify as a flip"),
+    max_hold_days: int = Query(
+        730, description="Max days between buy and sell to qualify as a flip"
+    ),
     min_profit_pct: float = Query(0.1, description="Minimum profit percentage (0.1 = 10%)"),
     min_profit: float = Query(0, description="Minimum absolute profit in dollars"),
     sale_date__gte: date | None = None,
@@ -481,7 +502,9 @@ async def get_flips(
             t1.c.new_owner.label("buyer"),
             t2.c.new_owner.label("seller"),
         )
-        .select_from(t1.join(t2, (t1.c.parcel_id == t2.c.parcel_id) & (t2.c.sale_date > t1.c.sale_date)))
+        .select_from(t1.join(
+            t2, (t1.c.parcel_id == t2.c.parcel_id) & (t2.c.sale_date > t1.c.sale_date)
+        ))
         .where(t1.c.deal_size == 1)
         .where(t2.c.deal_size == 1)
         .where(hold_days_expr <= max_hold_days)
@@ -723,7 +746,9 @@ async def get_neighborhood_trends(
     )
     prev = yearly.alias("prev")
     curr = yearly.alias("curr")
-    yoy_expr = ((curr.c.median_price - prev.c.median_price) / prev.c.median_price * 100).label("yoy_change_pct")
+    yoy_expr = (
+        (curr.c.median_price - prev.c.median_price) / prev.c.median_price * 100
+    ).label("yoy_change_pct")
     query = (
         select(
             curr.c.neighborhood,
@@ -925,12 +950,12 @@ async def get_owner_profile(
             year, {"buy_count": 0, "sell_count": 0, "total_spent": 0.0, "total_received": 0.0}
         )
 
-    for role, rows, count_key, money_key in (
-        ("buy", buys, "buy_count", "total_spent"),
-        ("sell", sells, "sell_count", "total_received"),
+    for rows, count_key, money_key in (
+        (buys, "buy_count", "total_spent"),
+        (sells, "sell_count", "total_received"),
     ):
         seen_deals: set[tuple] = set()
-        for parcel_id, sale_date, price in rows:
+        for _parcel_id, sale_date, price in rows:
             b = bucket(sale_date.year)
             b[count_key] += 1
             deal = (sale_date, price)

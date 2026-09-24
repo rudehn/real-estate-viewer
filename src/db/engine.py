@@ -1,9 +1,10 @@
 import os
 from pathlib import Path
-from sqlmodel import SQLModel
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-from sqlmodel.ext.asyncio.session import AsyncSession
+
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
+from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 _DB_PATH = Path(__file__).parent.parent.parent / "database.db"
 # Overridable via DATABASE_URL so the container can point at a mounted volume,
