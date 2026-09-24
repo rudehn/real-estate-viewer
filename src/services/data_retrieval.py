@@ -58,7 +58,11 @@ def retrieve_yearly_data(force: bool = False):
     """
     Downloads yearly sales CSVs from the county website.
     Skips years where files are already present on disk unless force=True.
-    The current calendar year is always re-fetched to pick up new sales.
+    The current and previous calendar years are always re-fetched: the county
+    re-exports the current year monthly, and the previous year's file on disk
+    was downloaded while that year was still current, so it is partial until
+    the final export is fetched. Ingestion skips files whose content hasn't
+    changed, so the refresh is cheap.
     """
     yearly_data = f"{DATA_DIR}/yearly/"
     base_url = "https://go.mcohio.org/applications/treasurer/search/data/Yearly"
@@ -69,10 +73,9 @@ def retrieve_yearly_data(force: bool = False):
         zip_name = f"SALES_{year}.zip"
         check_year = year
         year -= 1
-        # Always re-fetch the current year (partial data); skip past years if already on disk
-        is_current_year = check_year == current_year
+        is_recent_year = check_year >= current_year - 1
         existing = glob.glob(f"{yearly_data}**/SALES_{check_year}*.csv", recursive=True)
-        if existing and not force and not is_current_year:
+        if existing and not force and not is_recent_year:
             logger.info("Skipping %s (already on disk)", zip_name)
             continue
         full_url = f"{base_url}/{zip_name}"

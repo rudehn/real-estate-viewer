@@ -27,7 +27,7 @@ A FastAPI backend scrapes and serves the sales/parcel data; a Next.js frontend r
 
 When `AUTO_INGEST=true`, the backend runs a background loop (`src/services/populate.py`) that:
 
-1. Downloads yearly sales CSVs from the county site (current year always refreshed).
+1. Downloads yearly sales CSVs from the county site (current and previous year always refreshed).
 2. Ingests them.
 3. Downloads and ingests any new weekly sales ZIPs.
 4. Geocodes parcels missing coordinates via the US Census batch API.

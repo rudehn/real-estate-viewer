@@ -3,8 +3,8 @@
 Runs the full data-population sequence so the database fills itself after the
 app is deployed - no manual CLI steps required:
 
-  1. Download yearly sales CSVs from the county site (all years, current year
-     always refreshed) to DATA_DIR.
+  1. Download yearly sales CSVs from the county site (all years, current and
+     previous year always refreshed) to DATA_DIR.
   2. Ingest those CSVs into the DB.
   3. Download and ingest any new weekly sales ZIPs.
   4. Geocode parcels that are missing coordinates (for the map view).
