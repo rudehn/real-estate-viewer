@@ -366,3 +366,17 @@ def test_decode_csv_prefers_utf8():
     assert _decode_csv("﻿PARID,NAME\nA1,JOSÉ\n".encode()) == "PARID,NAME\nA1,JOSÉ\n"
     assert _decode_csv("PARID,NAME\nA1,JOSÉ\n".encode("cp1252")) == "PARID,NAME\nA1,JOSÉ\n"
 
+
+async def test_natural_key_index_is_detected_on_fresh_db():
+    """The expression index must be recognised, or the full-table dedupe DELETE
+    reruns on every startup (SQLite reflection skips expression indexes)."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlmodel import SQLModel
+
+    import db.maintenance as maintenance_module
+
+    test_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with test_engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+        assert await conn.run_sync(maintenance_module._has_natural_key_index)
+    await test_engine.dispose()

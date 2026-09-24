@@ -10,7 +10,7 @@ straight through.
 
 The SQL is written to run identically on SQLite and Postgres.
 """
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 
 from db.engine import engine
 from logging_config import get_logger
@@ -38,9 +38,17 @@ _CREATE_INDEX_SQL = text(
 )
 
 
+# Look the index up by name in the catalog: SQLAlchemy's SQLite reflection
+# skips expression-based indexes, so inspect().get_indexes() never sees it.
+_INDEX_EXISTS_SQL = {
+    "sqlite": text("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = :name"),
+    "postgresql": text("SELECT 1 FROM pg_indexes WHERE indexname = :name"),
+}
+
+
 def _has_natural_key_index(sync_conn) -> bool:
-    indexes = inspect(sync_conn).get_indexes("transaction")
-    return any(ix["name"] == NATURAL_KEY_INDEX for ix in indexes)
+    query = _INDEX_EXISTS_SQL[sync_conn.dialect.name]
+    return sync_conn.execute(query, {"name": NATURAL_KEY_INDEX}).first() is not None
 
 
 async def ensure_transaction_dedup() -> None:
