@@ -3,15 +3,12 @@ Unit tests for CSV row parsing logic in db/ingestors.py.
 These tests exercise the parsing edge cases without requiring a real database.
 """
 import csv
-import io
 import datetime
-import tempfile
+import io
 import os
+import tempfile
 
-import pytest
-
-from db.models import ParcelClass, SaleType
-
+from db.models import ParcelClass
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -56,13 +53,13 @@ BASE_ROW = {
 
 async def ingest_csv_string(csv_str: str) -> tuple[list, list]:
     """Write csv_str to a temp file, run ingest_yearly_file, return (transactions, parcels)."""
-    from db.ingestors import ingest_yearly_file
-    from db.engine import engine
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.orm import sessionmaker
     from sqlmodel import SQLModel, select
     from sqlmodel.ext.asyncio.session import AsyncSession
-    from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.ext.asyncio import create_async_engine
-    from db.models import Transaction, Parcel
+
+    from db.ingestors import ingest_yearly_file
+    from db.models import Parcel, Transaction
 
     test_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with test_engine.begin() as conn:
@@ -157,14 +154,14 @@ async def test_empty_row_is_skipped():
 
 async def test_duplicate_file_is_not_reingested():
     """Running ingest_yearly_file twice on the same file should not double-insert."""
-    from db.ingestors import ingest_yearly_file
-    from sqlmodel import select
-    from sqlmodel.ext.asyncio.session import AsyncSession
-    from sqlalchemy.orm import sessionmaker
     from sqlalchemy.ext.asyncio import create_async_engine
-    from sqlmodel import SQLModel
-    from db.models import Transaction
+    from sqlalchemy.orm import sessionmaker
+    from sqlmodel import SQLModel, select
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
     import db.ingestors as ingestors_module
+    from db.ingestors import ingest_yearly_file
+    from db.models import Transaction
 
     test_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with test_engine.begin() as conn:
@@ -196,13 +193,14 @@ async def test_duplicate_file_is_not_reingested():
 
 async def test_same_row_in_two_files_is_inserted_once():
     """Weekly ZIPs overlap the yearly files; identical rows must dedup."""
-    from db.ingestors import ingest_yearly_file
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.orm import sessionmaker
     from sqlmodel import SQLModel, select
     from sqlmodel.ext.asyncio.session import AsyncSession
-    from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.ext.asyncio import create_async_engine
-    from db.models import Transaction
+
     import db.ingestors as ingestors_module
+    from db.ingestors import ingest_yearly_file
+    from db.models import Transaction
 
     test_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with test_engine.begin() as conn:
@@ -212,7 +210,9 @@ async def test_same_row_in_two_files_is_inserted_once():
     other_row = {**BASE_ROW, "CONVNUM": "99999", "PRICE": "225000"}
     paths = []
     for rows in ([BASE_ROW], [BASE_ROW, other_row]):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="utf-8") as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", delete=False, encoding="utf-8"
+        ) as f:
             f.write(make_csv(rows))
             paths.append(f.name)
 
@@ -240,12 +240,13 @@ async def test_same_row_in_two_files_is_inserted_once():
 async def test_maintenance_dedupes_existing_rows():
     """ensure_transaction_dedup removes pre-index duplicates and is idempotent."""
     from sqlalchemy import text as sa_text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.orm import sessionmaker
     from sqlmodel import SQLModel, select
     from sqlmodel.ext.asyncio.session import AsyncSession
-    from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.ext.asyncio import create_async_engine
-    from db.models import Parcel, Transaction
+
     import db.maintenance as maintenance_module
+    from db.models import Parcel, Transaction
 
     test_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with test_engine.begin() as conn:
@@ -282,3 +283,86 @@ async def test_maintenance_dedupes_existing_rows():
         txns = (await s.exec(select(Transaction))).all()
     await test_engine.dispose()
     assert len(txns) == 1
+
+
+# ---------------------------------------------------------------------------
+# Encoding: the county exports are not always UTF-8
+# ---------------------------------------------------------------------------
+
+# SALES_20260913_TO_20260919.zip carried a cp1252 non-breaking space (0xA0)
+# inside a mailing name, which is invalid UTF-8.
+NBSP_ROW = {**BASE_ROW, "MAILINGNAME1": "JUSTIN\xa0GOTTUSO", "OWNERNAME1": "JUST\xa0IN LLC"}
+
+
+def make_cp1252_csv(rows: list[dict]) -> bytes:
+    return make_csv(rows).encode("cp1252")
+
+
+async def _ingest_into_memory(ingest):
+    """Run ``ingest()`` against a fresh in-memory DB; return its transactions."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlmodel import SQLModel, select
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    import db.ingestors as ingestors_module
+    from db.models import Transaction
+
+    test_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with test_engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+    original_engine = ingestors_module.engine
+    ingestors_module.engine = test_engine
+    try:
+        await ingest()
+        async_session = sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+        async with async_session() as s:
+            return (await s.exec(select(Transaction))).all()
+    finally:
+        ingestors_module.engine = original_engine
+        await test_engine.dispose()
+
+
+async def test_weekly_zip_with_cp1252_bytes_is_ingested():
+    """A weekly ZIP whose CSV is not valid UTF-8 must still be ingested."""
+    import zipfile
+
+    from db.ingestors import _ingest_weekly_zip
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("SALES_20260913_TO_20260919.csv", make_cp1252_csv([NBSP_ROW]))
+
+    txns = await _ingest_into_memory(
+        lambda: _ingest_weekly_zip("SALES_20260913_TO_20260919.zip", buf.getvalue())
+    )
+
+    assert len(txns) == 1
+    # NBSP is normalised to a plain space so owner-name matching still works
+    assert txns[0].mailing_name == "JUSTIN GOTTUSO"
+    assert txns[0].new_owner == "JUST IN LLC"
+
+
+async def test_yearly_file_with_cp1252_bytes_is_ingested():
+    """A yearly CSV that is not valid UTF-8 must be ingested, not crash the run."""
+    from db.ingestors import ingest_yearly_file
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
+        f.write(make_cp1252_csv([NBSP_ROW]))
+        tmp_path = f.name
+    try:
+        txns = await _ingest_into_memory(lambda: ingest_yearly_file(tmp_path))
+    finally:
+        os.unlink(tmp_path)
+
+    assert len(txns) == 1
+    assert txns[0].mailing_name == "JUSTIN GOTTUSO"
+
+
+def test_decode_csv_prefers_utf8():
+    """Genuine UTF-8 (with or without BOM) must not be mis-decoded as cp1252."""
+    from db.ingestors import _decode_csv
+
+    assert _decode_csv("﻿PARID,NAME\nA1,JOSÉ\n".encode()) == "PARID,NAME\nA1,JOSÉ\n"
+    assert _decode_csv("PARID,NAME\nA1,JOSÉ\n".encode("cp1252")) == "PARID,NAME\nA1,JOSÉ\n"
+

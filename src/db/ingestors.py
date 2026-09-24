@@ -68,78 +68,9 @@ async def ingest_yearly_file(filename: str):
             logger.info("Skipping %s (already processed)", filename)
             return
 
-        # 2. Read CSV (Sync operation, but fast enough for local files)
-        # For massive files, we might run this in a thread, but simple read is fine here
-        mappings = []
-        parcels = {}
-
-        with open(filename, encoding="utf-8-sig") as f:  # utf-8-sig handles BOM
-            reader = csv.DictReader(f)
-            for row in reader:
-                cleaned_row = {k.strip(): v.strip() for k, v in row.items()}
-                if not any(cleaned_row.values()):
-                    continue
-
-                try:
-                    # conversions...
-                    s_price = float(cleaned_row.get("PRICE", 0))
-                    acres_str = cleaned_row.get("ACRES", "0")
-                    acres = float(acres_str) if acres_str else 0.0
-                    conv_num = cleaned_row.get("CONVNUM")
-
-                    # Handle Date Parsing safely
-                    sale_date_str = row["SALEDTE"]
-                    sale_date = datetime.datetime.strptime(sale_date_str, "%d-%b-%y").date()
-
-                    # Safely get Enum
-                    p_class_str = cleaned_row.get("CLS", "R")
-                    # Simple mapping fallback
-                    try:
-                        p_class = ParcelClass[p_class_str]
-                    except:
-                        p_class = ParcelClass.R  # Default or Log error
-
-                    assessed_land = cleaned_row.get("ASMTLAND")
-                    assessed_building = cleaned_row.get("ASMTBLDG")
-                    assessed_total = cleaned_row.get("ASMTTOTL")
-                    sale_type = cleaned_row.get("SALETYPE")
-                    deed_reference = cleaned_row.get("DEEDREFERENCE")
-
-                    transaction = Transaction(
-                        parcel_id=cleaned_row["PARID"],
-                        conv_num=int(conv_num) if conv_num else None,
-                        sale_date=sale_date,
-                        sale_price=s_price,
-                        old_owner=cleaned_row.get("OLDOWN", ""),
-                        new_owner=cleaned_row.get("OWNERNAME1", ""),
-                        parcel_location=cleaned_row.get("PARCELLOCATION", ""),
-                        mailing_name=cleaned_row.get("MAILINGNAME1", ""),
-                        mailing_address=cleaned_row.get("PADDR1", ""),
-                        parcel_class=p_class,
-                        acres=acres,
-                        taxable_land=int(cleaned_row.get("TAXLAND", 0)),
-                        taxable_building=int(cleaned_row.get("TAXBLDG", 0)),
-                        taxable_total=int(cleaned_row.get("TAXTOTAL", 0)),
-                        assessed_land=int(assessed_land) if assessed_land else None,
-                        assessed_building=int(assessed_building) if assessed_building else None,
-                        assessed_total=int(assessed_total) if assessed_total else None,
-                        sale_type=SaleType(sale_type.upper()) if sale_type else None,
-                        sale_validity=cleaned_row.get("SALEVALIDITY"),
-                        deed_reference=cleaned_row.get("DEEDREFERENCE"),
-                        neighborhood=cleaned_row.get("NBHD"),
-                    )
-                    mappings.append(transaction)
-
-                    # Prepare parcel for upsert
-                    parcels[transaction.parcel_id] = {
-                        "parcel_id": transaction.parcel_id,
-                        "parcel_location": transaction.parcel_location,
-                        "parcel_class": transaction.parcel_class,
-                        "acres": transaction.acres,
-                    }
-                except Exception as e:
-                    logger.warning("Error parsing row: %s", e)
-                    continue
+        # 2. Parse the CSV
+        with open(filename, "rb") as f:
+            mappings, parcels = _parse_csv_rows(_decode_csv(f.read()))
 
         if parcels:
             parcel_values = list(parcels.values())
@@ -153,11 +84,27 @@ async def ingest_yearly_file(filename: str):
         if mappings:
             await _insert_transactions(session, mappings)
 
-            # 5. Mark file as ingested
+            # 4. Mark file as ingested
             session.add(DataFile(filename=filename, ingested_at=datetime.datetime.now()))
 
             await session.commit()
             logger.info("Committed %d transactions from %s", len(mappings), filename)
+
+
+def _decode_csv(raw: bytes) -> str:
+    """Decode a county sales CSV.
+
+    The exports are usually plain ASCII, but occasionally carry cp1252 bytes -
+    e.g. a non-breaking space (0xA0) typed into a mailing name - which are not
+    valid UTF-8. Try UTF-8 first (so genuine UTF-8 is never mis-decoded), then
+    fall back to cp1252. Non-breaking spaces become plain spaces so owner names
+    still match across files.
+    """
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("cp1252", errors="replace")
+    return text.replace("\xa0", " ")
 
 
 def _parse_csv_rows(csv_text: str) -> tuple[list[Transaction], dict[str, dict]]:
@@ -277,7 +224,7 @@ async def _ingest_weekly_zip(filename: str, raw_bytes: bytes) -> None:
         try:
             with zipfile.ZipFile(BytesIO(raw_bytes)) as zf:
                 csv_name = next(n for n in zf.namelist() if n.endswith(".csv"))
-                csv_text = zf.read(csv_name).decode("utf-8-sig")
+                csv_text = _decode_csv(zf.read(csv_name))
         except Exception as e:
             logger.warning("Could not read ZIP %s: %s", filename, e)
             return
