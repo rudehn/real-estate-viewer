@@ -71,3 +71,21 @@ def test_rows_with_wrong_column_count_are_bad(tmp_path):
     ids = [r["parcel_id"] for r in reader.rows(path)]
     assert "Z99 00000 0001" not in ids
     assert (reader.total, reader.bad) == (5, 1)
+
+
+def test_missing_column_is_rejected_with_its_name(tmp_path):
+    from county.fixedwidth import TooManyBadRows
+
+    with zipfile.ZipFile(FIXTURE) as zf:
+        (entry,) = zf.namelist()
+        lines = zf.read(entry).split(b'\r\n')
+    # Rename FRCLSR to FRCLSR2 in header
+    header = lines[0].replace(b'FRCLSR', b'FRCLSR2')
+    broken = header + b'\r\n' + b'\r\n'.join(lines[1:])
+    path = tmp_path / "TAXROLL_20260923.zip"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr(entry, broken)
+    reader = TaxRollReader()
+    with pytest.raises(TooManyBadRows) as exc_info:
+        list(reader.rows(path))
+    assert "FRCLSR" in str(exc_info.value)

@@ -25,6 +25,32 @@ from county.fixedwidth import TooManyBadRows, parse_date
 BILL_COMPONENTS = ("ADJ", "RLBK", "HMSD", "HMRB", "SPASMTS", "DAYCRDT")
 _FILE_DATE = re.compile(r"TAXROLL_(\d{8})", re.IGNORECASE)
 
+REQUIRED_COLUMNS = {
+    "PARCELID",
+    "TXYR",
+    "CLS",
+    "LUC",
+    "TXDST",
+    "NBHD",
+    "PARCELLOCATION",
+    "OWNERNAME1",
+    "OWNERNAME2",
+    "MAILINGNAME1",
+    "PADDR1",
+    "PADDR2",
+    "PADDR3",
+    "ASMTTOTAL",
+    "GROSSRATE",
+    "EFFRATE",
+    "FRCLSR",
+    "AGLAND",
+    "NETDELQ",
+    "FULLYRAMTDUE",
+    "YRBL",
+    "SALESDTE",
+    "PRICE",
+}
+
 
 def _text(value: str | None) -> str | None:
     if value is None:
@@ -73,6 +99,10 @@ class TaxRollReader:
                 text = io.TextIOWrapper(fh, encoding="cp1252", errors="replace", newline="")
                 reader = csv.reader(text)
                 header = [h.strip() for h in next(reader)]
+                header_set = set(header)
+                missing = REQUIRED_COLUMNS - header_set
+                if missing:
+                    raise TooManyBadRows(f"TAXROLL: missing columns {', '.join(sorted(missing))}")
                 for values in reader:
                     if not any(v.strip() for v in values):
                         continue
