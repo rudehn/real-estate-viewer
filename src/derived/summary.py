@@ -17,6 +17,7 @@ from db.county_models import (
     DataVersion,
     Dwelling,
     NeighborhoodSummary,
+    OwnerIndex,
     ParcelSummary,
     ParcelTax,
     ParcelValue,
@@ -146,6 +147,30 @@ async def build_parcel_summary(conn: AsyncConnection) -> int:
     return await insert_rows(conn, ParcelSummary.__table__, summary_rows())
 
 
+async def build_owner_index(conn: AsyncConnection) -> int:
+    """One row per distinct owner name: active parcel count, or 0 for past buyers only."""
+    s, t = ParcelSummary.__table__, Transaction.__table__
+    current = (await conn.execute(
+        sa.select(s.c.owner_name, sa.func.count().label("n"))
+        .where(s.c.is_active.is_(True), s.c.owner_name.isnot(None))
+        .group_by(s.c.owner_name)
+    )).all()
+    counts = {name: n for name, n in current}
+    past_owners = (await conn.execute(sa.select(t.c.new_owner).distinct())).scalars().all()
+    for name in past_owners:
+        counts.setdefault(name, 0)
+
+    def rows():
+        for name, count in counts.items():
+            search = normalize_search(name)
+            if not search:
+                continue
+            yield {"name": name, "name_search": search, "parcel_count": count}
+
+    await conn.execute(sa.delete(OwnerIndex.__table__))
+    return await insert_rows(conn, OwnerIndex.__table__, rows())
+
+
 async def latest_sale_date(conn: AsyncConnection) -> date | None:
     t = Transaction.__table__
     return (await conn.execute(
@@ -223,6 +248,7 @@ async def rebuild_derived(engine: AsyncEngine | None = None) -> int:
         engine = default_engine
     async with engine.begin() as conn:
         parcels = await build_parcel_summary(conn)
+        await build_owner_index(conn)
         anchor = await latest_sale_date(conn)
         neighborhoods = await build_neighborhood_summary(conn, anchor)
         version = await bump_data_version(conn)

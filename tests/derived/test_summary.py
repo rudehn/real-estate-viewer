@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from db.county_models import NeighborhoodSummary, ParcelSummary
+from db.county_models import NeighborhoodSummary, OwnerIndex, ParcelSummary
 from db.models import Parcel, ParcelClass, Transaction
 from derived.summary import current_data_version, latest_sale_date, rebuild_derived
 from ingest.cama_ingest import ingest_cama
@@ -101,6 +101,15 @@ async def test_inactive_parcel_without_cama_data_still_summarized(loaded):
     assert gone.is_active is False
     assert gone.last_sale_price == 50_000
     assert gone.living_sqft is None
+
+
+async def test_owner_index_current_and_past_owners(loaded):
+    await rebuild_derived(engine=loaded)
+    async with AsyncSession(loaded) as s:
+        current = await s.get(OwnerIndex, "MULLENAX SAMANTHA MARIE")
+        past = await s.get(OwnerIndex, "FUND LLC")
+    assert (current.name, current.parcel_count) == ("MULLENAX SAMANTHA MARIE", 1)
+    assert (past.name, past.parcel_count) == ("FUND LLC", 0)
 
 
 async def test_neighborhood_summary(loaded):

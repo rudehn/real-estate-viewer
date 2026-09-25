@@ -7,8 +7,7 @@ import sqlalchemy as sa
 from pydantic import BaseModel
 
 from county.text import normalize_search, parcel_id_key, prefix_upper_bound, street_key
-from db.county_models import Neighborhood, ParcelSummary
-from db.models import Transaction
+from db.county_models import Neighborhood, OwnerIndex, ParcelSummary
 
 
 class AddressHit(BaseModel):
@@ -52,7 +51,7 @@ async def search(session, q: str, limit: int = 8) -> SearchResults:
     results = SearchResults(query=query)
     if len(query) < 2:
         return results
-    ps, n, t = ParcelSummary.__table__, Neighborhood.__table__, Transaction.__table__
+    ps, n, oi = ParcelSummary.__table__, Neighborhood.__table__, OwnerIndex.__table__
 
     address_rows = (await session.exec(
         sa.select(ps.c.parcel_id, ps.c.address, ps.c.neighborhood, ps.c.last_sale_price,
@@ -73,21 +72,13 @@ async def search(session, q: str, limit: int = 8) -> SearchResults:
     )).mappings().all()
     results.parcels = [ParcelHit(**r) for r in parcel_rows]
 
-    current = (await session.exec(
-        sa.select(ps.c.owner_name, sa.func.count().label("n"))
-        .where(_in_prefix(ps.c.owner_search, query), ps.c.owner_name.isnot(None))
-        .group_by(ps.c.owner_name).order_by(sa.func.count().desc(), ps.c.owner_name)
+    owner_rows = (await session.exec(
+        sa.select(oi.c.name, oi.c.parcel_count)
+        .where(_in_prefix(oi.c.name_search, query))
+        .order_by(oi.c.parcel_count.desc(), oi.c.name)
         .limit(limit)
     )).all()
-    owners = [OwnerHit(name=name, parcel_count=count) for name, count in current]
-    if len(owners) < limit:
-        known = {o.name for o in owners}
-        past = (await session.exec(
-            sa.select(t.c.new_owner).where(_in_prefix(t.c.new_owner, query))
-            .distinct().order_by(t.c.new_owner).limit(limit)
-        )).scalars().all()
-        owners += [OwnerHit(name=name, parcel_count=0) for name in past if name not in known]
-    results.owners = owners[:limit]
+    results.owners = [OwnerHit(name=name, parcel_count=count) for name, count in owner_rows]
 
     hood_rows = (await session.exec(
         sa.select(n.c.code, n.c.name, n.c.display_name)

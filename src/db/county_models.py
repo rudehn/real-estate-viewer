@@ -192,6 +192,19 @@ class NeighborhoodSummary(SQLModel, table=True):
     median_value_change_pct: float | None = None
 
 
+class OwnerIndex(SQLModel, table=True):
+    """One row per distinct owner name seen, current or past, for search.
+
+    parcel_count is how many active parcels in parcel_summary the name
+    currently owns; 0 means the name only appears as a past transaction buyer.
+    """
+
+    __tablename__ = "owner_index"
+    name: str = Field(primary_key=True)
+    name_search: str = Field(index=True)
+    parcel_count: int = 0
+
+
 class DataVersion(SQLModel, table=True):
     """Single row (id=1). Bumped by the derived step; keys every cache."""
 

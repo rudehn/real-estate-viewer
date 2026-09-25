@@ -1,3 +1,12 @@
+import datetime as dt
+
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from api.cache import cache
+from derived.summary import rebuild_derived
+from tests.api.conftest import sale
+
+
 async def search(api, q):
     r = await api.get("/v2/search", params={"q": q})
     assert r.status_code == 200
@@ -48,3 +57,14 @@ async def test_search_normalizes_messy_input(api):
 async def test_too_short(api):
     body = await search(api, "a")
     assert body["addresses"] == [] and body["owners"] == []
+
+
+async def test_past_owner_with_punctuation(api, county_db):
+    async with AsyncSession(county_db) as s:
+        s.add(sale("A01 00101 0001", dt.date(2025, 8, 1), 500_000, buyer="O'DONNELL MARY"))
+        await s.commit()
+    await rebuild_derived(engine=county_db)
+    cache.clear()
+    for q in ("o'donnell", "odonnell"):
+        body = await search(api, q)
+        assert {"name": "O'DONNELL MARY", "parcel_count": 0} in body["owners"]
