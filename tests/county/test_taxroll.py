@@ -6,7 +6,7 @@ import pytest
 
 from county.taxroll import TaxRollReader, annual_bill, snapshot_date
 
-FIXTURE = Path(__file__).parent.parent / "fixtures" / "county" / "taxroll_fixture.zip"
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "county" / "TAXROLL_20260923.zip"
 
 
 def read_all():
