@@ -2,6 +2,8 @@
 data/
 !frontend/src/lib/data/
 !frontend/src/lib/data/**
+!src/county/data/tax_districts.json
+!src/county/data/neighborhoods.geojson
 database.db
 **/__pycache__/*
 .venv

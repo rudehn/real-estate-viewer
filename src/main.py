@@ -8,16 +8,19 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi_filter import FilterDepends
 from fastapi_filter.contrib.sqlalchemy import Filter
 
 # from fastapi_filters import create_filters, create_filters_from_model, FilterValues
 # from fastapi_filters.ext.sqlalchemy import apply_filters
-from sqlalchemy import Integer, case, cast, extract, func, literal, or_
+from sqlalchemy import Integer, case, cast, extract, func, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import and_, desc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from api import router as v2_router
+from api.errors import register_error_handlers
 from db.criteria import market_sale_criteria
 from db.engine import get_session, init_db
 from db.models import (
@@ -35,19 +38,25 @@ from db.models import (
     OwnerParcel,
     OwnerProfile,
     OwnerStats,
-    OwnerYearActivity,
     Parcel,
     ParcelClass,
     ParcelComps,
     ParcelListModel,
-    RelatedOwner,
     StaleParcel,
     Transaction,
     TransactionListModel,
     TransactionResponse,
 )
-from db.sqlutil import date_add_days, days_between
 from logging_config import configure_logging, get_logger
+from services.analytics.distress import distressed_sales, stale_parcels
+from services.analytics.market import market_buckets, top_buyers, top_sellers
+from services.analytics.owners import (
+    absentee_owners,
+    acquisition_waves,
+    net_sellers,
+    owner_profile,
+)
+from services.analytics.sales import find_flips
 from services.owner_names import merge_owner_rows
 
 configure_logging()
@@ -97,6 +106,10 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+register_error_handlers(app)
+app.include_router(v2_router)
 
 
 # https://go.mcohio.org/applications/treasurer/search/data/Yearly/SALES_2025.zip
@@ -221,101 +234,8 @@ async def get_market_stats(
     Median comes from a row_number/count window pair so it works on both
     SQLite and Postgres (no percentile_cont on SQLite).
     """
-    # Portfolio deals are recorded with the full deal price on every parcel
-    # row, and the county doesn't always flag them (a $41M, 60-parcel deal is
-    # marked plain VALID SALE). Detect them structurally: identical
-    # (date, buyer, price) across rows is one conveyance, not N sales.
-    deal_rows = select(
-        Transaction.sale_date,
-        Transaction.sale_price,
-        func.count()
-        .over(
-            partition_by=[
-                Transaction.sale_date,
-                Transaction.new_owner,
-                Transaction.sale_price,
-            ]
-        )
-        .label("deal_size"),
-    )
-    if market_only:
-        deal_rows = deal_rows.where(market_sale_criteria())
-    else:
-        deal_rows = deal_rows.where(Transaction.sale_price > 0)
-    deal_rows = filters.filter(deal_rows).subquery()
-
-    if granularity == "all":
-        year_col = literal(0).label("y")
-    else:
-        year_col = cast(extract("year", deal_rows.c.sale_date), Integer).label("y")
-    month_col = cast(extract("month", deal_rows.c.sale_date), Integer)
-    if granularity == "month":
-        sub_col = month_col
-    elif granularity == "quarter":
-        sub_col = case(
-            (month_col <= 3, 1), (month_col <= 6, 2), (month_col <= 9, 3), else_=4
-        )
-    else:
-        sub_col = literal(1)
-    sub_col = sub_col.label("b")
-
-    base = (
-        select(
-            year_col,
-            sub_col,
-            deal_rows.c.sale_price.label("price"),
-            func.row_number()
-            .over(partition_by=[year_col, sub_col], order_by=deal_rows.c.sale_price)
-            .label("rn"),
-            func.count().over(partition_by=[year_col, sub_col]).label("cnt"),
-        )
-        .where(deal_rows.c.deal_size == 1)
-        .subquery()
-    )
-
-    # The middle row(s) by price within each bucket; avg() of the one or two
-    # selected rows is the median. `//` compiles to plain integer division on
-    # both dialects, where `/` would emit a float-casting true division.
-    is_median_row = or_(
-        base.c.rn == (base.c.cnt + 1) // 2,
-        base.c.rn == (base.c.cnt + 2) // 2,
-    )
-    query = (
-        select(
-            base.c.y,
-            base.c.b,
-            func.count().label("transaction_count"),
-            func.avg(case((is_median_row, base.c.price))).label("median_price"),
-            func.avg(base.c.price).label("avg_price"),
-            func.sum(base.c.price).label("total_volume"),
-        )
-        .group_by(base.c.y, base.c.b)
-        .order_by(base.c.y, base.c.b)
-    )
-    rows = (await session.exec(query)).mappings().all()
-
-    buckets = []
-    for row in rows:
-        y, b = row["y"], row["b"]
-        if granularity == "all":
-            period, start = "all", date(1970, 1, 1)
-        elif granularity == "month":
-            period, start = f"{y}-{b:02d}", date(y, b, 1)
-        elif granularity == "quarter":
-            period, start = f"{y}-Q{b}", date(y, 3 * (b - 1) + 1, 1)
-        else:
-            period, start = str(y), date(y, 1, 1)
-        buckets.append(
-            MarketStatsBucket(
-                period=period,
-                period_start=start,
-                transaction_count=row["transaction_count"],
-                median_price=row["median_price"] or 0.0,
-                avg_price=row["avg_price"] or 0.0,
-                total_volume=row["total_volume"] or 0.0,
-            )
-        )
-    return buckets
+    return await market_buckets(session, granularity=granularity, market_only=market_only,
+                                apply=filters.filter)
 
 
 @app.get("/analytics/top-buyers", response_model=list[OwnerStats])
@@ -329,28 +249,7 @@ async def get_top_buyers(
     Finds entities who have purchased the most properties or spent the most money.
     Useful for finding investors or 'Whales'.
     """
-    query = (
-        select(
-            Transaction.new_owner.label("owner_name"),
-            func.count(Transaction.id).label("transaction_count"),
-            func.sum(Transaction.sale_price).label("total_spent"),
-            func.avg(Transaction.sale_price).label("avg_price")
-        )
-        .where(Transaction.sale_price >= min_spent)
-        .group_by(Transaction.new_owner)
-        .order_by(desc("transaction_count")) # Sort by volume
-        # .order_by(desc("total_spent"))       # OR Sort by money spent
-        # Over-fetch: rows are re-merged by normalized owner name below.
-        .limit(limit * 3)
-    )
-    if market_only:
-        query = query.where(market_sale_criteria(include_multi_parcel=True))
-
-    rows = (await session.exec(query)).mappings().all()
-    merged = merge_owner_rows(rows, sum_fields=("transaction_count", "total_spent"), limit=limit)
-    for r in merged:
-        r["avg_price"] = r["total_spent"] / r["transaction_count"] if r["transaction_count"] else 0
-    return merged
+    return await top_buyers(session, limit=limit, min_spent=min_spent, market_only=market_only)
 
 @app.get("/analytics/top-sellers", response_model=list[OwnerStats])
 async def get_top_sellers(
@@ -359,25 +258,7 @@ async def get_top_sellers(
     session: AsyncSession = Depends(get_session),
 ):
     """Finds entities who are selling off large portfolios."""
-    query = (
-        select(
-            Transaction.old_owner.label("owner_name"),
-            func.count(Transaction.id).label("transaction_count"),
-            func.sum(Transaction.sale_price).label("total_spent"),
-            func.avg(Transaction.sale_price).label("avg_price")
-        )
-        .group_by(Transaction.old_owner)
-        .order_by(desc("transaction_count"))
-        # Over-fetch: rows are re-merged by normalized owner name below.
-        .limit(limit * 3)
-    )
-    if market_only:
-        query = query.where(market_sale_criteria(include_multi_parcel=True))
-    rows = (await session.exec(query)).mappings().all()
-    merged = merge_owner_rows(rows, sum_fields=("transaction_count", "total_spent"), limit=limit)
-    for r in merged:
-        r["avg_price"] = r["total_spent"] / r["transaction_count"] if r["transaction_count"] else 0
-    return merged
+    return await top_sellers(session, limit=limit, market_only=market_only)
 
 @app.get("/analytics/neighborhoods", response_model=list[NeighborhoodStats])
 async def get_neighborhood_stats(
@@ -457,71 +338,11 @@ async def get_flips(
     session: AsyncSession = Depends(get_session),
 ):
     """Find properties bought and resold quickly at a profit (flips)."""
-    # Only single-parcel arm's-length sales qualify on either side: portfolio
-    # deals stamp the whole deal price on every parcel row, which would turn
-    # a $50k house inside a $25M portfolio sale into a fake 500x flip.
-    sides = (
-        select(
-            Transaction.parcel_id,
-            Transaction.parcel_location,
-            Transaction.sale_date,
-            Transaction.sale_price,
-            Transaction.new_owner,
-            Transaction.parcel_class,
-            func.count()
-            .over(
-                partition_by=[
-                    Transaction.sale_date,
-                    Transaction.new_owner,
-                    Transaction.sale_price,
-                ]
-            )
-            .label("deal_size"),
-        )
-        .where(market_sale_criteria(include_distress=True))
-        .subquery()
+    return await find_flips(
+        session, max_hold_days=max_hold_days, min_profit_pct=min_profit_pct,
+        min_profit=min_profit, date_from=sale_date__gte, date_to=sale_date__lte,
+        classes=[parcel_class] if parcel_class else None, limit=limit,
     )
-    t1 = sides.alias("t1")
-    t2 = sides.alias("t2")
-
-    hold_days_expr = days_between(t2.c.sale_date, t1.c.sale_date)
-    profit_expr = t2.c.sale_price - t1.c.sale_price
-    profit_pct_expr = profit_expr / t1.c.sale_price
-
-    query = (
-        select(
-            t1.c.parcel_id,
-            t1.c.parcel_location,
-            t1.c.sale_date.label("buy_date"),
-            t2.c.sale_date.label("sell_date"),
-            t1.c.sale_price.label("buy_price"),
-            t2.c.sale_price.label("sell_price"),
-            hold_days_expr.label("hold_days"),
-            profit_expr.label("profit"),
-            profit_pct_expr.label("profit_pct"),
-            t1.c.new_owner.label("buyer"),
-            t2.c.new_owner.label("seller"),
-        )
-        .select_from(t1.join(
-            t2, (t1.c.parcel_id == t2.c.parcel_id) & (t2.c.sale_date > t1.c.sale_date)
-        ))
-        .where(t1.c.deal_size == 1)
-        .where(t2.c.deal_size == 1)
-        .where(hold_days_expr <= max_hold_days)
-        .where(profit_pct_expr >= min_profit_pct)
-        .where(profit_expr >= min_profit)
-        .order_by(desc(profit_pct_expr))
-        .limit(limit)
-    )
-    if sale_date__gte:
-        query = query.where(t1.c.sale_date >= sale_date__gte)
-    if sale_date__lte:
-        query = query.where(t2.c.sale_date <= sale_date__lte)
-    if parcel_class:
-        query = query.where(t1.c.parcel_class == parcel_class.value)
-
-    result = await session.exec(query)
-    return result.mappings().all()
 
 
 @app.get("/analytics/distressed", response_model=list[DistressedSale])
@@ -535,38 +356,10 @@ async def get_distressed_sales(
     session: AsyncSession = Depends(get_session),
 ):
     """Find sales where the price was significantly below assessed value."""
-    ratio_expr = (Transaction.sale_price / Transaction.assessed_total).label("assessed_ratio")
-    # Nominal/family transfers are excluded (they're cheap by construction,
-    # not distressed) but foreclosures and liquidations are kept — those are
-    # exactly the distress signal this view exists to surface.
-    query = (
-        select(
-            Transaction.id,
-            Transaction.parcel_id,
-            Transaction.parcel_location,
-            Transaction.sale_date,
-            Transaction.sale_price,
-            Transaction.assessed_total,
-            ratio_expr,
-            Transaction.new_owner,
-            Transaction.neighborhood,
-            Transaction.parcel_class,
-        )
-        .where(market_sale_criteria(include_distress=True))
-        .where(Transaction.assessed_total >= min_assessed)
-        .where(Transaction.sale_price / Transaction.assessed_total <= max_ratio)
-        .order_by(ratio_expr)
-        .limit(limit)
+    return await distressed_sales(
+        session, max_ratio=max_ratio, min_assessed=min_assessed, date_from=sale_date__gte,
+        date_to=sale_date__lte, classes=[parcel_class] if parcel_class else None, limit=limit,
     )
-    if sale_date__gte:
-        query = query.where(Transaction.sale_date >= sale_date__gte)
-    if sale_date__lte:
-        query = query.where(Transaction.sale_date <= sale_date__lte)
-    if parcel_class:
-        query = query.where(Transaction.parcel_class == parcel_class)
-
-    result = await session.exec(query)
-    return result.mappings().all()
 
 
 @app.get("/analytics/absentee-owners", response_model=list[OwnerStats])
@@ -575,26 +368,8 @@ async def get_absentee_owners(
     limit: int = Query(50, le=500),
     session: AsyncSession = Depends(get_session),
 ):
-    """Find owners whose mailing address is outside Ohio — likely absentee/investor owners."""
-    query = (
-        select(
-            Transaction.new_owner.label("owner_name"),
-            func.count(Transaction.id).label("transaction_count"),
-            func.sum(Transaction.sale_price).label("total_spent"),
-            func.avg(Transaction.sale_price).label("avg_price"),
-        )
-        .where(Transaction.mailing_address != "")
-        .where(Transaction.mailing_address.not_like("%OH%"))
-        .where(Transaction.mailing_address.not_like("%Ohio%"))
-        .group_by(Transaction.new_owner)
-        .order_by(desc("transaction_count"))
-        .limit(limit)
-    )
-    if parcel_class:
-        query = query.where(Transaction.parcel_class == parcel_class)
-
-    result = await session.exec(query)
-    return result.all()
+    """Find owners whose mailing address is outside Ohio - likely absentee/investor owners."""
+    return await absentee_owners(session, parcel_class=parcel_class, limit=limit)
 
 
 @app.get("/analytics/top-owners", response_model=list[OwnerHoldings])
@@ -605,7 +380,7 @@ async def get_top_owners(
     session: AsyncSession = Depends(get_session),
 ):
     """Current top property owners based on most recent transaction per parcel."""
-    # Window function ranks each parcel's transactions newest-first in a single pass —
+    # Window function ranks each parcel's transactions newest-first in a single pass -
     # much faster than the double-subquery / self-join approach on large tables.
     ranked = (
         select(
@@ -664,37 +439,9 @@ async def get_net_sellers(
     session: AsyncSession = Depends(get_session),
 ):
     """Find entities actively selling off their portfolio (sells >> buys)."""
-    buys = select(Transaction.new_owner.label("owner"), func.count().label("buy_count"))
-    sells = select(Transaction.old_owner.label("owner"), func.count().label("sell_count"))
-    if sale_date__gte:
-        buys = buys.where(Transaction.sale_date >= sale_date__gte)
-        sells = sells.where(Transaction.sale_date >= sale_date__gte)
-    if sale_date__lte:
-        buys = buys.where(Transaction.sale_date <= sale_date__lte)
-        sells = sells.where(Transaction.sale_date <= sale_date__lte)
-    buys = buys.group_by(Transaction.new_owner).subquery()
-    sells = sells.group_by(Transaction.old_owner).subquery()
-
-    net_expr = (sells.c.sell_count - func.coalesce(buys.c.buy_count, 0)).label("net")
-    query = (
-        select(
-            sells.c.owner.label("owner_name"),
-            func.coalesce(buys.c.buy_count, 0).label("buy_count"),
-            sells.c.sell_count,
-            net_expr,
-        )
-        .outerjoin(buys, sells.c.owner == buys.c.owner)
-        .where(net_expr >= min_net_sells)
-        .order_by(desc(net_expr))
-        # Over-fetch: rows are re-merged by normalized owner name below.
-        .limit(limit * 3)
-    )
-    rows = (await session.exec(query)).mappings().all()
-    return merge_owner_rows(
-        rows,
-        sum_fields=("buy_count", "sell_count", "net"),
-        limit=limit,
-        sort_field="net",
+    return await net_sellers(
+        session, min_net_sells=min_net_sells, date_from=sale_date__gte,
+        date_to=sale_date__lte, limit=limit,
     )
 
 
@@ -779,28 +526,10 @@ async def get_stale_parcels(
     session: AsyncSession = Depends(get_session),
 ):
     """Find parcels that haven't changed hands recently."""
-    years_expr = days_between(func.current_date(), func.max(Transaction.sale_date)) / 365.25
-    query = (
-        select(
-            Transaction.parcel_id,
-            # Aggregated so Postgres accepts the GROUP BY (one row per parcel);
-            # a parcel's location/class are consistent across its transactions.
-            func.max(Transaction.parcel_location).label("parcel_location"),
-            func.max(Transaction.parcel_class).label("parcel_class"),
-            func.max(Transaction.sale_date).label("last_sale_date"),
-            func.max(Transaction.sale_price).label("last_sale_price"),
-            years_expr.label("years_since_sale"),
-        )
-        .group_by(Transaction.parcel_id)
-        .having(years_expr >= min_years)
-        .order_by(desc(years_expr))
-        .limit(limit)
+    return await stale_parcels(
+        session, min_years=min_years, classes=[parcel_class] if parcel_class else None,
+        limit=limit,
     )
-    if parcel_class:
-        query = query.where(Transaction.parcel_class == parcel_class)
-
-    result = await session.exec(query)
-    return result.mappings().all()
 
 
 @app.get("/analytics/acquisition-waves", response_model=list[AcquisitionWave])
@@ -812,86 +541,11 @@ async def get_acquisition_waves(
     limit: int = Query(50, le=500),
     session: AsyncSession = Depends(get_session),
 ):
-    """Find owners who made many purchases in a short window — bulk acquisitions."""
-    # Window starts must be DISTINCT (owner, date) pairs. Joining the raw
-    # table against itself multiplied the counts quadratically for owners
-    # with many same-day purchases (630 same-day buys => ~397k pairs).
-    starts = select(
-        Transaction.new_owner.label("owner"),
-        Transaction.sale_date.label("start_date"),
-    ).distinct()
-    if sale_date__gte:
-        starts = starts.where(Transaction.sale_date >= sale_date__gte)
-    if sale_date__lte:
-        starts = starts.where(Transaction.sale_date <= sale_date__lte)
-    starts = starts.subquery()
-
-    # Aggregate purchases to deals first: a portfolio purchase stamps the
-    # whole deal price on every parcel row, so summing raw rows counted a
-    # $10M deal hundreds of times. One (owner, date, price) group = one deal
-    # of parcel_count parcels.
-    deals = (
-        select(
-            Transaction.new_owner.label("owner"),
-            Transaction.sale_date.label("deal_date"),
-            Transaction.sale_price.label("deal_price"),
-            func.count().label("parcel_count"),
-        )
-        .group_by(Transaction.new_owner, Transaction.sale_date, Transaction.sale_price)
-        .subquery()
+    """Find owners who made many purchases in a short window - bulk acquisitions."""
+    return await acquisition_waves(
+        session, window_days=window_days, min_acquisitions=min_acquisitions,
+        date_from=sale_date__gte, date_to=sale_date__lte, limit=limit,
     )
-
-    window_end_expr = date_add_days(starts.c.start_date, window_days)
-    count_expr = func.sum(deals.c.parcel_count).label("acquisition_count")
-    spent_expr = func.sum(deals.c.deal_price).label("total_spent")
-
-    windows = (
-        select(
-            starts.c.owner.label("owner_name"),
-            starts.c.start_date.label("window_start"),
-            window_end_expr.label("window_end"),
-            count_expr,
-            spent_expr,
-        )
-        .select_from(
-            starts.join(
-                deals,
-                (deals.c.owner == starts.c.owner)
-                & (deals.c.deal_date >= starts.c.start_date)
-                & (deals.c.deal_date <= window_end_expr),
-            )
-        )
-        .group_by(starts.c.owner, starts.c.start_date)
-        .having(count_expr >= min_acquisitions)
-        .subquery()
-    )
-
-    # Overlapping windows make the same buying spree show up many times;
-    # keep only each owner's biggest window.
-    ranked = select(
-        windows,
-        func.row_number()
-        .over(
-            partition_by=windows.c.owner_name,
-            order_by=[desc(windows.c.acquisition_count), windows.c.window_start],
-        )
-        .label("rn"),
-    ).subquery()
-    query = (
-        select(
-            ranked.c.owner_name,
-            ranked.c.window_start,
-            ranked.c.window_end,
-            ranked.c.acquisition_count,
-            ranked.c.total_spent,
-        )
-        .where(ranked.c.rn == 1)
-        .order_by(desc(ranked.c.acquisition_count))
-        .limit(limit)
-    )
-
-    result = await session.exec(query)
-    return result.mappings().all()
 
 
 @app.get("/analytics/owner-search")
@@ -912,124 +566,13 @@ async def search_owners(
     return result.all()
 
 
-# Mailing addresses shared by more owners than this are service addresses
-# (title companies, registered agents), not evidence of common ownership.
-_MAX_OWNERS_PER_ADDRESS = 12
-
-
 @app.get("/analytics/owner-profile", response_model=OwnerProfile)
 async def get_owner_profile(
     owner_name: str = Query(..., description="Exact owner name"),
     session: AsyncSession = Depends(get_session),
 ):
-    """Activity history and related entities for one owner.
-
-    Aggregated in Python: even the county's biggest investors have a few
-    thousand transactions, and the deal grouping / buy-sell pairing logic
-    is much clearer here than in portable SQL.
-    """
-    buys = (
-        await session.exec(
-            select(Transaction.parcel_id, Transaction.sale_date, Transaction.sale_price)
-            .where(Transaction.new_owner == owner_name)
-        )
-    ).all()
-    sells = (
-        await session.exec(
-            select(Transaction.parcel_id, Transaction.sale_date, Transaction.sale_price)
-            .where(Transaction.old_owner == owner_name)
-        )
-    ).all()
-
-    # Yearly counts, with money totals counted once per deal: portfolio
-    # conveyances stamp the whole price on every parcel row.
-    years: dict[int, dict[str, float]] = {}
-
-    def bucket(year: int) -> dict[str, float]:
-        return years.setdefault(
-            year, {"buy_count": 0, "sell_count": 0, "total_spent": 0.0, "total_received": 0.0}
-        )
-
-    for rows, count_key, money_key in (
-        (buys, "buy_count", "total_spent"),
-        (sells, "sell_count", "total_received"),
-    ):
-        seen_deals: set[tuple] = set()
-        for _parcel_id, sale_date, price in rows:
-            b = bucket(sale_date.year)
-            b[count_key] += 1
-            deal = (sale_date, price)
-            if deal not in seen_deals:
-                seen_deals.add(deal)
-                b[money_key] += price or 0.0
-
-    activity = [
-        OwnerYearActivity(year=y, **{k: v for k, v in stats.items()})
-        for y, stats in sorted(years.items())
-    ]
-
-    # Hold periods: pair each sale with the owner's latest prior purchase
-    # of the same parcel.
-    buys_by_parcel: dict[str, list] = {}
-    for parcel_id, sale_date, _ in buys:
-        buys_by_parcel.setdefault(parcel_id, []).append(sale_date)
-    hold_days: list[int] = []
-    for parcel_id, sell_date, _ in sells:
-        prior = [d for d in buys_by_parcel.get(parcel_id, []) if d < sell_date]
-        if prior:
-            hold_days.append((sell_date - max(prior)).days)
-    hold_days.sort()
-    median_hold = float(hold_days[len(hold_days) // 2]) if hold_days else None
-
-    # Related entities: other owners buying under the same mailing address.
-    addr_rows = (
-        await session.exec(
-            select(Transaction.mailing_address)
-            .where(Transaction.new_owner == owner_name)
-            .where(Transaction.mailing_address != "")
-            .distinct()
-        )
-    ).all()
-    related: list[RelatedOwner] = []
-    if addr_rows:
-        rows = (
-            await session.exec(
-                select(
-                    Transaction.new_owner,
-                    Transaction.mailing_address,
-                    func.count().label("cnt"),
-                )
-                .where(Transaction.mailing_address.in_(addr_rows))
-                .where(Transaction.new_owner != owner_name)
-                .group_by(Transaction.new_owner, Transaction.mailing_address)
-                .order_by(desc("cnt"))
-            )
-        ).all()
-        owners_per_addr: dict[str, int] = {}
-        for _, addr, _ in rows:
-            owners_per_addr[addr] = owners_per_addr.get(addr, 0) + 1
-        seen_names: set[str] = set()
-        for name, addr, cnt in rows:
-            if owners_per_addr[addr] > _MAX_OWNERS_PER_ADDRESS or name in seen_names:
-                continue
-            seen_names.add(name)
-            related.append(
-                RelatedOwner(owner_name=name, shared_address=addr, transaction_count=cnt)
-            )
-            if len(related) >= 20:
-                break
-
-    all_dates = [d for _, d, _ in buys] + [d for _, d, _ in sells]
-    return OwnerProfile(
-        owner_name=owner_name,
-        first_activity=min(all_dates) if all_dates else None,
-        last_activity=max(all_dates) if all_dates else None,
-        total_buys=len(buys),
-        total_sells=len(sells),
-        median_hold_days=median_hold,
-        activity=activity,
-        related_owners=related,
-    )
+    """Activity history and related entities for one owner."""
+    return await owner_profile(session, owner_name)
 
 
 @app.get("/parcels/{parcel_id}/comps", response_model=ParcelComps)

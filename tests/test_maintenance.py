@@ -112,3 +112,28 @@ async def test_fresh_database_is_left_alone(engine):
 
     assert await _index_names(engine) == before
     assert len(await _query(engine, "SELECT * FROM datafile")) == 1
+
+
+async def test_missing_deal_index_is_created(engine):
+    """Databases from before the multi-parcel deal index get it at startup."""
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP INDEX ix_transaction_deal"))
+
+    await maintenance_module.ensure_schema()
+
+    assert "ix_transaction_deal" in await _index_names(engine)
+
+
+async def test_empty_database_is_left_alone(monkeypatch):
+    """ensure_schema() before create_all (an empty database) must not fail."""
+    empty = create_async_engine("sqlite+aiosqlite:///:memory:")
+    monkeypatch.setattr(maintenance_module, "engine", empty)
+    try:
+        await maintenance_module.ensure_schema()
+        async with empty.connect() as conn:
+            tables = (await conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ))).all()
+        assert tables == []
+    finally:
+        await empty.dispose()

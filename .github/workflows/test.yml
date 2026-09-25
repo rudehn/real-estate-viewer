@@ -1,0 +1,41 @@
+name: test
+
+on:
+  push:
+    branches: [master, redesign]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run ruff check src tests scripts
+      - name: pytest (sqlite)
+        if: matrix.db == 'sqlite'
+        run: uv run pytest -q
+      - name: pytest (postgres)
+        if: matrix.db == 'postgres'
+        env:
+          # db.engine and db.sqlutil read DATABASE_URL to pick the dialect;
+          # the test fixtures read TEST_DATABASE_URL. Point both at Postgres.
+          TEST_DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+        run: uv run pytest -q

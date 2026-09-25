@@ -248,8 +248,10 @@ async def test_market_stats_excludes_non_market_sales(client, session):
     session.add(make_transaction(sale_price=800_000, sale_validity="VALID MULTI-PCL SALE"))
     # Unflagged portfolio deal: same buyer/date/price on several parcels
     for i in range(3):
+        parcel_id = f"D00{i + 1}"
+        session.add(make_parcel(parcel_id=parcel_id))
         session.add(make_transaction(
-            parcel_id=f"D00{i + 1}", new_owner="PORTFOLIO LLC",
+            parcel_id=parcel_id, new_owner="PORTFOLIO LLC",
             sale_price=41_000_000, sale_validity="VALID SALE",
         ))
     await session.commit()
@@ -316,12 +318,13 @@ async def test_distressed_excludes_nominal_transfers(client, session):
 # ---------------------------------------------------------------------------
 
 async def test_acquisition_waves_counts_same_day_buys_once(client, session):
-    session.add(make_parcel())
     # 5 same-day purchases of different parcels at individual prices:
     # the count must be 5, not 5x5=25
     for i in range(5):
+        parcel_id = f"P00{i + 1}"
+        session.add(make_parcel(parcel_id=parcel_id))
         session.add(make_transaction(
-            parcel_id=f"P00{i + 1}",
+            parcel_id=parcel_id,
             new_owner="BULK BUYER LLC",
             sale_date=datetime.date(2023, 6, 1),
             sale_price=100_000 + i * 1_000,
@@ -337,12 +340,13 @@ async def test_acquisition_waves_counts_same_day_buys_once(client, session):
 
 
 async def test_acquisition_waves_portfolio_deal_price_counted_once(client, session):
-    session.add(make_parcel())
     # A 5-parcel portfolio deal stamps the full $1M deal price on every row:
-    # 5 acquisitions, but $1M spent — not $5M.
+    # 5 acquisitions, but $1M spent - not $5M.
     for i in range(5):
+        parcel_id = f"P00{i + 1}"
+        session.add(make_parcel(parcel_id=parcel_id))
         session.add(make_transaction(
-            parcel_id=f"P00{i + 1}",
+            parcel_id=parcel_id,
             new_owner="PORTFOLIO BUYER LLC",
             sale_date=datetime.date(2023, 6, 1),
             sale_price=1_000_000,
@@ -458,11 +462,12 @@ async def test_owner_profile_activity_and_holds(client, session):
 
 
 async def test_owner_profile_portfolio_deal_spent_once(client, session):
-    session.add(make_parcel())
     # 3-parcel portfolio buy: $900k stamped on each row, spent must be $900k
     for i in range(3):
+        parcel_id = f"P00{i + 1}"
+        session.add(make_parcel(parcel_id=parcel_id))
         session.add(make_transaction(
-            parcel_id=f"P00{i + 1}", new_owner="PORTFOLIO LLC",
+            parcel_id=parcel_id, new_owner="PORTFOLIO LLC",
             sale_date=datetime.date(2022, 5, 1), sale_price=900_000,
         ))
     await session.commit()
@@ -475,6 +480,8 @@ async def test_owner_profile_portfolio_deal_spent_once(client, session):
 
 async def test_owner_profile_related_by_mailing_address(client, session):
     session.add(make_parcel())
+    session.add(make_parcel(parcel_id="P002", parcel_location="456 OAK ST"))
+    session.add(make_parcel(parcel_id="P003", parcel_location="789 ELM ST"))
     session.add(make_transaction(
         parcel_id="P001", new_owner="VB ONE LLC",
         mailing_address="PO BOX 123 DAYTON OH", sale_price=100_000,
@@ -501,6 +508,8 @@ async def test_owner_profile_related_by_mailing_address(client, session):
 
 async def test_parcel_comps_same_neighborhood_and_class(client, session):
     session.add(make_parcel())
+    for comp_id in ("C001", "C002", "C003", "C004"):
+        session.add(make_parcel(parcel_id=comp_id, parcel_location=f"{comp_id} COMP ST"))
     today = datetime.date.today()
     # The subject parcel
     session.add(make_transaction(parcel_id="P001", neighborhood="1010", sale_price=100_000))
@@ -567,8 +576,10 @@ async def test_top_buyers_market_only_excludes_nominal(client, session):
     session.add(make_parcel())
     session.add(make_transaction(new_owner="REAL BUYER", sale_price=250_000))
     for i in range(3):
+        parcel_id = f"Q00{i + 1}"
+        session.add(make_parcel(parcel_id=parcel_id, parcel_location=f"{parcel_id} ST"))
         session.add(make_transaction(
-            parcel_id=f"Q00{i + 1}", new_owner="QUITCLAIM CO", sale_price=0,
+            parcel_id=parcel_id, new_owner="QUITCLAIM CO", sale_price=0,
         ))
     await session.commit()
 

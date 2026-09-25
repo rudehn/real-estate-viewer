@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from enum import Enum
 
+import sqlalchemy as sa
 from pydantic import BaseModel
 from sqlalchemy import Index, text
 from sqlmodel import Field, Relationship, SQLModel
@@ -32,6 +33,18 @@ class ParcelBase(SQLModel):
 
     latitude: float | None = Field(default=None, description="Geographic Latitude")
     longitude: float | None = Field(default=None, description="Geographic Longitude")
+
+    neighborhood: str | None = Field(default=None, index=True, description="CAMA neighborhood code")
+    tax_district: str | None = Field(default=None, description="Tax district code")
+    land_use_code: str | None = Field(default=None, description="Ohio DTE land use code")
+    zip: str | None = Field(default=None, description="Situs ZIP code")
+    census_tract: str | None = Field(default=None, description="Census block group")
+    is_active: bool = Field(
+        default=True,
+        sa_column_kwargs={"server_default": sa.true()},
+        description="False once the parcel disappears from CAMA (retired or combined)",
+    )
+    coord_source: str | None = Field(default=None, description="county or census")
 
 
 class Parcel(ParcelBase, table=True):
@@ -104,6 +117,9 @@ class Transaction(TransactionBase, table=True):
             sqlite_where=text("conv_num IS NULL"),
             postgresql_where=text("conv_num IS NULL"),
         ),
+        # One multi-parcel deal (same date, buyer and price on several
+        # parcels): single_parcel_criteria probes it once per sale.
+        Index("ix_transaction_deal", "sale_date", "new_owner", "sale_price"),
     )
 
     # Which county export last wrote this row. "yearly" rows are authoritative
@@ -281,6 +297,7 @@ class MarketStatsBucket(BaseModel):
     median_price: float
     avg_price: float
     total_volume: float
+    median_price_per_sqft: float | None = None
 
 
 class OwnerParcel(BaseModel):
