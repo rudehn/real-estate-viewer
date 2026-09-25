@@ -26,6 +26,18 @@ logger = get_logger(__name__)
 
 RETIRED_INDEXES = ("uq_transaction_natural",)
 
+# Columns added to parcel for the county data platform. DDL is portable:
+# SQLite and Postgres both accept BOOLEAN ... DEFAULT TRUE.
+PARCEL_COLUMNS = {
+    "neighborhood": "neighborhood VARCHAR",
+    "tax_district": "tax_district VARCHAR",
+    "land_use_code": "land_use_code VARCHAR",
+    "zip": "zip VARCHAR",
+    "census_tract": "census_tract VARCHAR",
+    "is_active": "is_active BOOLEAN NOT NULL DEFAULT TRUE",
+    "coord_source": "coord_source VARCHAR",
+}
+
 # Keep the oldest row of each group (for yearly-sourced sales the next
 # re-ingest overwrites it with the authoritative values anyway). Correlated
 # EXISTS rather than "id NOT IN (SELECT MIN(id) ... GROUP BY ...)": Postgres
@@ -126,7 +138,24 @@ def _repair(sync_conn) -> None:
     _ensure_transaction_keys(sync_conn)
 
 
+def _add_parcel_columns(sync_conn) -> None:
+    existing = {c["name"] for c in inspect(sync_conn).get_columns("parcel")}
+    for name, ddl in PARCEL_COLUMNS.items():
+        if name not in existing:
+            logger.info("Adding parcel.%s.", name)
+            sync_conn.execute(text(f"ALTER TABLE parcel ADD COLUMN {ddl}"))
+    if not _has_index(sync_conn, "ix_parcel_neighborhood"):
+        sync_conn.execute(text("CREATE INDEX ix_parcel_neighborhood ON parcel (neighborhood)"))
+
+
+def repair_schema(sync_conn) -> None:
+    """Every idempotent repair, in order. Safe to run on any database."""
+    _add_parcel_columns(sync_conn)
+    if inspect(sync_conn).has_table("transaction"):
+        _repair(sync_conn)
+
+
 async def ensure_schema() -> None:
     """Bring a database created by older code up to the current schema."""
     async with engine.begin() as conn:
-        await conn.run_sync(_repair)
+        await conn.run_sync(repair_schema)
