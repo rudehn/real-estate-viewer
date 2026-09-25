@@ -68,3 +68,11 @@ async def test_flips_exclude_multi_parcel_deals(api):
     assert [(f["parcel_id"], f["buy_price"], f["sell_price"]) for f in page["rows"]] == [
         ("R72 00304 0025", 300_000, 330_000)
     ]
+
+
+async def test_total_counts_every_matching_row(api):
+    for params in ({}, {"market_only": "true"}, {"neighborhood": "15007000"},
+                   {"neighborhood": "15007000", "market_only": "true"},
+                   {"price_min": 100_000, "sqft_min": 1}):
+        page = await get(api, "/v2/sales", page_size=200, **params)
+        assert page["total"] == len(page["rows"]), params

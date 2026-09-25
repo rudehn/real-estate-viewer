@@ -47,7 +47,7 @@ def market_sale_criteria(
 
     include_multi_parcel: keep multi-parcel conveyances (each row carries
     the whole deal price). Leave False anywhere prices are aggregated.
-    include_distress: keep foreclosures/liquidations — real transactions at
+    include_distress: keep foreclosures/liquidations - real transactions at
     real prices, wanted where distress itself is the subject (distressed
     sales, flip entry points) but excluded from market price statistics.
     """
@@ -57,7 +57,11 @@ def market_sale_criteria(
     if not include_multi_parcel:
         excluded.update(MULTI_PARCEL_VALIDITY)
     return and_(
-        Transaction.sale_price >= MIN_MARKET_PRICE,
+        # "+ 0" keeps planners from driving the query off the sale_price
+        # index: the floor keeps most rows (58% of the real sales history),
+        # and SQLite, which has no value histograms, would otherwise walk the
+        # index across most of the table, several times slower than a scan.
+        Transaction.sale_price + 0 >= MIN_MARKET_PRICE,
         Transaction.new_owner != Transaction.old_owner,
         or_(
             Transaction.sale_validity.is_(None),

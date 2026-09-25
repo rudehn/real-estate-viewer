@@ -22,15 +22,19 @@ A FastAPI backend scrapes and serves the sales/parcel data; a Next.js frontend r
 | `AUTO_INGEST` | `false` | When true, the backend self-populates the DB in the background on startup and on a schedule. |
 | `INGEST_INTERVAL_HOURS` | `24` | How often the background population loop re-runs. |
 | `GEOCODE` | `true` | Whether the population run geocodes parcels missing coordinates. |
+| `COUNTY_INGEST` | `true` | Whether the population run also ingests CAMA, the tax roll and neighborhood names. |
 
 ## Automated population
 
 When `AUTO_INGEST=true`, the backend runs a background loop (`src/services/populate.py`) that:
 
-1. Downloads yearly sales CSVs from the county site (current and previous year always refreshed).
-2. Ingests them.
-3. Downloads and ingests any new weekly sales ZIPs.
-4. Geocodes parcels missing coordinates via the US Census batch API.
+1. Downloads and ingests the yearly sales CSVs from the county site (current and previous year always refreshed).
+2. Downloads and ingests any new weekly sales ZIPs.
+3. Ingests the newest CAMA export (monthly): parcels, dwellings, features, values and county coordinates.
+4. Ingests the newest neighborhood names (monthly).
+5. Ingests the newest tax roll (weekly): bills, delinquency and occupancy.
+6. Geocodes, via the US Census batch API, only the parcels the county does not locate.
+7. Rebuilds the derived data: `parcel_summary`, `neighborhood_summary` and the map binary.
 
 Every step is idempotent (files whose exact content was already ingested and already-geocoded parcels are skipped), so the deployed database fills itself with no manual steps.
 A failing step is logged and the remaining steps still run.
@@ -38,6 +42,17 @@ A failing step is logged and the remaining steps still run.
 The county publishes each sale several times: in weekly ZIPs shortly after it is recorded, then in every monthly re-export of the yearly file.
 The yearly export is authoritative (corrected buyer names, validity codes, and the neighborhood and deed columns that weekly files lack), so yearly rows overwrite stored ones, while weekly rows only fill in sales newer than the last yearly export.
 See the top of `src/db/ingestors.py` for the exact rules.
+
+## API
+
+The frontend uses the versioned `/v2` API.
+Its OpenAPI document is committed at `frontend/openapi.json`; regenerate it with `uv run python scripts/export_openapi.py` after changing the API.
+`/analytics` and the other unversioned routes remain until the new frontend ships.
+
+## Data sources
+
+See [docs/data-sources/README.md](docs/data-sources/README.md) for the county files we ingest, their layouts and profiling findings.
+`uv run python scripts/verify_real_data.py` runs every ingest step against a copy of `database.db` and the newest county files, then reports coverage and endpoint latency.
 
 ## Local development
 

@@ -112,3 +112,13 @@ async def test_fresh_database_is_left_alone(engine):
 
     assert await _index_names(engine) == before
     assert len(await _query(engine, "SELECT * FROM datafile")) == 1
+
+
+async def test_missing_deal_index_is_created(engine):
+    """Databases from before the multi-parcel deal index get it at startup."""
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP INDEX ix_transaction_deal"))
+
+    await maintenance_module.ensure_schema()
+
+    assert "ix_transaction_deal" in await _index_names(engine)

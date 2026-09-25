@@ -117,6 +117,9 @@ class Transaction(TransactionBase, table=True):
             sqlite_where=text("conv_num IS NULL"),
             postgresql_where=text("conv_num IS NULL"),
         ),
+        # One multi-parcel deal (same date, buyer and price on several
+        # parcels): single_parcel_criteria probes it once per sale.
+        Index("ix_transaction_deal", "sale_date", "new_owner", "sale_price"),
     )
 
     # Which county export last wrote this row. "yearly" rows are authoritative

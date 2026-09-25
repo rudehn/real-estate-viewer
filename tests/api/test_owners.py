@@ -1,8 +1,11 @@
 import datetime as dt
 
+import sqlalchemy as sa
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from db.county_models import ParcelSummary
 from db.models import Parcel, ParcelClass
+from derived.summary import bump_data_version
 from tests.api.conftest import sale
 
 
@@ -60,3 +63,20 @@ async def test_net_sellers_and_absentee_shapes(api):
     for path in ("/v2/investors/net-sellers", "/v2/investors/absentee-owners"):
         body = await get(api, path)
         assert set(body) == {"applied_filters", "rows"}
+
+
+async def test_top_owners_are_cached_per_data_version(api, county_db):
+    """The aggregate scans every parcel, so it is served from the versioned cache."""
+    async def names():
+        body = await get(api, "/v2/owners/top", limit=100)
+        return {r["owner_name"] for r in body["rows"]}
+
+    assert "MULLENAX SAMANTHA MARIE" in await names()
+    async with county_db.begin() as conn:
+        ps = ParcelSummary.__table__
+        await conn.execute(sa.update(ps).where(ps.c.owner_name == "MULLENAX SAMANTHA MARIE")
+                           .values(owner_name="NEW OWNER LLC"))
+    assert "MULLENAX SAMANTHA MARIE" in await names()
+    async with county_db.begin() as conn:
+        await bump_data_version(conn)
+    assert "NEW OWNER LLC" in await names()

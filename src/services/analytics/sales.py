@@ -9,7 +9,7 @@ from datetime import date
 import sqlalchemy as sa
 from pydantic import BaseModel
 
-from api.filters import Filters, sale_conditions
+from api.filters import Filters, sale_conditions, summary_conditions
 from db.county_models import Neighborhood, ParcelSummary
 from db.criteria import market_sale_criteria, plausible_price_criteria, single_parcel_criteria
 from db.models import FlipResult, Parcel, ParcelClass, Transaction
@@ -56,13 +56,17 @@ class FlipsPage(BaseModel):
     rows: list[FlipResult]
 
 
+def _market_sale():
+    """A market sale: arm's length, a real price, and a per-parcel price (not
+    one row of a multi-parcel deal, flagged or not)."""
+    return sa.and_(market_sale_criteria(), plausible_price_criteria(), single_parcel_criteria())
+
+
 def _sales_select(f: Filters, market_only: bool):
     t, ps, p, n = (Transaction.__table__, ParcelSummary.__table__, Parcel.__table__,
                    Neighborhood.__table__)
     ppsf = sa.case((ps.c.living_sqft > 0, t.c.sale_price * 1.0 / ps.c.living_sqft))
-    # A market sale: arm's length, a real price, and a per-parcel price (not
-    # one row of a multi-parcel deal, flagged or not).
-    market = sa.and_(market_sale_criteria(), plausible_price_criteria(), single_parcel_criteria())
+    market = _market_sale()
     is_market = sa.case((market, True), else_=False)
     conditions = sale_conditions(f, t, ps)
     if market_only:
@@ -87,6 +91,23 @@ def _sales_select(f: Filters, market_only: bool):
     return base, sort_columns, t.c.id
 
 
+def _sales_count(f: Filters, market_only: bool):
+    """The row count of _sales_select, joining only what the filters read.
+
+    The outer joins there are on primary keys, so they never change the count,
+    but counting through them (and the per-row market flag) costs a join per
+    sale on an unfiltered request.
+    """
+    t, ps = Transaction.__table__, ParcelSummary.__table__
+    conditions = sale_conditions(f, t, ps)
+    if market_only:
+        conditions.append(_market_sale())
+    query = sa.select(sa.func.count()).select_from(t)
+    if summary_conditions(f, ps):
+        query = query.outerjoin(ps, ps.c.parcel_id == t.c.parcel_id)
+    return query.where(*conditions)
+
+
 def _row(mapping) -> dict:
     row = dict(mapping)
     cls = row["parcel_class"]
@@ -104,9 +125,7 @@ def _ordered(base, sort_columns, tiebreak, sort: str, order: str):
 async def list_sales(session, f: Filters, *, sort: str, order: str, page: int, page_size: int,
                      market_only: bool) -> SalesPage:
     base, sort_columns, tiebreak = _sales_select(f, market_only)
-    total = (await session.exec(
-        sa.select(sa.func.count()).select_from(base.subquery())
-    )).scalar_one()
+    total = (await session.exec(_sales_count(f, market_only))).scalar_one()
     rows = (await session.exec(
         _ordered(base, sort_columns, tiebreak, sort, order)
         .limit(page_size).offset((page - 1) * page_size)

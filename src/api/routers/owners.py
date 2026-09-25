@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from api.cache import cache, data_version
 from api.filters import Filters, get_filters, honored
 from db.engine import get_session
 from services.analytics.owners import OwnerDetail, OwnerPortfolio, owner_detail, top_owners
@@ -24,7 +25,12 @@ async def top(f: Filters = Depends(get_filters),
               order_by: Literal["parcels", "acres", "value"] = "parcels",
               limit: int = Query(15, ge=1, le=100),
               session: AsyncSession = Depends(get_session)):
-    rows = await top_owners(session, f, order_by=order_by, limit=limit)
+    # Aggregates every parcel_summary row, which only changes with data_version.
+    version = await data_version(session)
+    rows = await cache.get_or_compute(
+        ("owners-top", f.model_dump_json(), order_by, limit), version,
+        lambda: top_owners(session, f, order_by=order_by, limit=limit),
+    )
     return OwnerList(applied_filters=honored(f, PARCEL_FILTERS), rows=rows)
 
 
