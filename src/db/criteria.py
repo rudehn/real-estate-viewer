@@ -14,6 +14,7 @@ via MULTI_PARCEL_VALIDITY until per-parcel allocation exists.
 from sqlalchemy import and_, exists, or_
 
 from db.models import Transaction
+from db.sqlutil import no_index
 
 # Below this a recorded price is nominal consideration, not a market price.
 MIN_MARKET_PRICE = 1_000
@@ -57,11 +58,10 @@ def market_sale_criteria(
     if not include_multi_parcel:
         excluded.update(MULTI_PARCEL_VALIDITY)
     return and_(
-        # "+ 0" keeps planners from driving the query off the sale_price
-        # index: the floor keeps most rows (58% of the real sales history),
-        # and SQLite, which has no value histograms, would otherwise walk the
-        # index across most of the table, several times slower than a scan.
-        Transaction.sale_price + 0 >= MIN_MARKET_PRICE,
+        # SQLite planner workaround: the floor keeps most rows (58% of the
+        # real sales history), and without no_index SQLite walks the
+        # sale_price index across most of the table instead of scanning it.
+        no_index(Transaction.sale_price) >= MIN_MARKET_PRICE,
         Transaction.new_owner != Transaction.old_owner,
         or_(
             Transaction.sale_validity.is_(None),

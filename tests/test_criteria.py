@@ -1,6 +1,7 @@
 import datetime as dt
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -42,3 +43,9 @@ async def test_market_sale_query_plan_on_sqlite():
     await engine.dispose()
     assert plan[0] == "SCAN transaction"
     assert any("ix_transaction_deal" in step for step in plan), plan
+
+
+def test_price_floor_workaround_is_sqlite_only():
+    sql = str(market_sale_criteria().compile(dialect=postgresql.dialect()))
+    assert "sale_price >=" in sql
+    assert "+ 0" not in sql
