@@ -1,5 +1,5 @@
 """Load a CAMA export into parcel, parcel_detail, dwelling, parcel_feature,
-parcel_value and neighborhood, all in one transaction.
+parcel_value, neighborhood and tax_district, all in one transaction.
 
 Runs in the background population loop. Parsing happens in worker threads
 (bulk.in_thread_chunks) so the API keeps serving while a 2 GB export loads.
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -18,9 +18,18 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from county import cama
 from county.coords import state_plane_to_wgs84
-from db.county_models import Dwelling, ParcelDetail, ParcelFeature
+from county.neighborhood_codes import neighborhood_display_name
+from county.tax_districts import district_info, jurisdiction_name
+from db.county_models import (
+    Dwelling,
+    Neighborhood,
+    ParcelDetail,
+    ParcelFeature,
+    ParcelValue,
+    TaxDistrict,
+)
 from db.models import Parcel, ParcelClass
-from ingest.bulk import in_thread_chunks, upsert
+from ingest.bulk import in_thread_chunks, replace_rows, upsert
 from logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -297,6 +306,110 @@ async def load_features(conn: AsyncConnection, ctx: CamaContext) -> int:
     return written
 
 
+_VALUE_METHODS = {"1": "cost", "3": "override", "4": "income", "5": "cost (income suppressed)"}
+
+
+def value_method(revcode: str | None) -> str | None:
+    return _VALUE_METHODS.get(revcode) if revcode else None
+
+
+def appeal_year(revreas: str | None) -> int | None:
+    """Board of Revision appeals are coded B + 2-digit year (B96, B20)."""
+    if not revreas or len(revreas) != 3 or revreas[0] != "B" or not revreas[1:].isdigit():
+        return None
+    yy = int(revreas[1:])
+    return 2000 + yy if yy <= 40 else 1900 + yy
+
+
+def _values_2026(zip_path: Path) -> dict[str, dict]:
+    """2026 reappraisal values. Three parcels have two rows (split class): sum them."""
+    out: dict[str, dict] = {}
+    for row in _checked_rows(zip_path, "ASMT"):
+        entry = out.setdefault(row["parid"], {"land": 0, "building": 0, "reascd": row["reascd"]})
+        entry["land"] += row["aprland"] or 0
+        entry["building"] += row["aprbldg"] or 0
+    return out
+
+
+def _value_row(row: dict, v2026: dict | None, ctx: CamaContext) -> dict:
+    total_2025 = row["aprtot"]
+    total_2026 = (v2026["land"] + v2026["building"]) if v2026 else None
+    change = None
+    if total_2025 and total_2026 is not None:
+        change = round((total_2026 - total_2025) / total_2025 * 100, 3)
+    return {
+        "parcel_id": row["parid"],
+        "land_2025": row["aprland"],
+        "building_2025": row["aprbldg"],
+        "total_2025": total_2025,
+        "land_2026": v2026["land"] if v2026 else None,
+        "building_2026": v2026["building"] if v2026 else None,
+        "total_2026": total_2026,
+        "change_pct": change,
+        "value_method": value_method(row["revcode"]),
+        "appeal_year": appeal_year(row["revreas"]),
+        "tif": row["revreas"] == "TIF",
+        "abated": row["revreas"] == "ABA",
+        "reappraisal_reason": ctx.decodes.label("ASMT", "REASCD", v2026["reascd"])
+        if v2026 else None,
+        "snapshot_date": ctx.snapshot,
+    }
+
+
+async def load_values(conn: AsyncConnection, ctx: CamaContext) -> int:
+    v2026 = await asyncio.to_thread(_values_2026, ctx.zip_path)
+    await conn.execute(sa.delete(ParcelValue.__table__))
+    written = 0
+    rows = (
+        _value_row(r, v2026.get(r["parid"]), ctx)
+        for r in _checked_rows(ctx.zip_path, "APRVAL")
+    )
+    async for chunk in in_thread_chunks(rows):
+        await conn.execute(sa.insert(ParcelValue.__table__), chunk)
+        written += len(chunk)
+    return written
+
+
+async def load_neighborhoods_from_cama(conn: AsyncConnection, ctx: CamaContext) -> int:
+    names = await asyncio.to_thread(cama.neighborhood_names, ctx.zip_path)
+    table = Neighborhood.__table__
+    rows = [
+        {"code": code, "name": name, "display_name": neighborhood_display_name(name)}
+        for code, name in names.items()
+    ]
+    for i in range(0, len(rows), 1000):
+        stmt = upsert(conn)(table).values(rows[i : i + 1000])
+        await conn.execute(stmt.on_conflict_do_nothing(index_elements=["code"]))
+    parcel = Parcel.__table__
+    pairs = await conn.execute(
+        sa.select(parcel.c.neighborhood, parcel.c.tax_district, sa.func.count())
+        .where(parcel.c.neighborhood.isnot(None), parcel.c.is_active.is_(True))
+        .group_by(parcel.c.neighborhood, parcel.c.tax_district)
+    )
+    tallies: dict[str, Counter] = {}
+    for code, district, n in pairs:
+        tallies.setdefault(code, Counter())[district] += n
+    for code, counter in tallies.items():
+        await conn.execute(
+            sa.update(table).where(table.c.code == code)
+            .values(tax_district=counter.most_common(1)[0][0])
+        )
+    return len(rows)
+
+
+async def load_tax_districts(conn: AsyncConnection) -> int:
+    parcel = Parcel.__table__
+    codes = (await conn.execute(
+        sa.select(parcel.c.tax_district).where(parcel.c.tax_district.isnot(None)).distinct()
+    )).scalars().all()
+    rows = []
+    for code in codes:
+        name, school = district_info(code)
+        rows.append({"code": code, "name": name, "jurisdiction": jurisdiction_name(code),
+                     "school_district": school})
+    return await replace_rows(conn, TaxDistrict.__table__, rows)
+
+
 async def ingest_cama(zip_path: Path, engine: AsyncEngine | None = None) -> dict[str, int]:
     if engine is None:
         from db.engine import engine as default_engine
@@ -309,5 +422,8 @@ async def ingest_cama(zip_path: Path, engine: AsyncEngine | None = None) -> dict
         counts["parcel_detail"] = await load_parcel_details(conn, ctx)
         counts["dwelling"] = await load_dwellings(conn, ctx)
         counts["parcel_feature"] = await load_features(conn, ctx)
+        counts["parcel_value"] = await load_values(conn, ctx)
+        counts["neighborhood"] = await load_neighborhoods_from_cama(conn, ctx)
+        counts["tax_district"] = await load_tax_districts(conn)
     logger.info("CAMA %s ingested: %s", ctx.snapshot, counts)
     return counts
