@@ -51,6 +51,7 @@ from db.models import (
 )
 from db.sqlutil import date_add_days, days_between
 from logging_config import configure_logging, get_logger
+from services.analytics.sales import find_flips
 from services.owner_names import merge_owner_rows
 
 configure_logging()
@@ -464,71 +465,11 @@ async def get_flips(
     session: AsyncSession = Depends(get_session),
 ):
     """Find properties bought and resold quickly at a profit (flips)."""
-    # Only single-parcel arm's-length sales qualify on either side: portfolio
-    # deals stamp the whole deal price on every parcel row, which would turn
-    # a $50k house inside a $25M portfolio sale into a fake 500x flip.
-    sides = (
-        select(
-            Transaction.parcel_id,
-            Transaction.parcel_location,
-            Transaction.sale_date,
-            Transaction.sale_price,
-            Transaction.new_owner,
-            Transaction.parcel_class,
-            func.count()
-            .over(
-                partition_by=[
-                    Transaction.sale_date,
-                    Transaction.new_owner,
-                    Transaction.sale_price,
-                ]
-            )
-            .label("deal_size"),
-        )
-        .where(market_sale_criteria(include_distress=True))
-        .subquery()
+    return await find_flips(
+        session, max_hold_days=max_hold_days, min_profit_pct=min_profit_pct,
+        min_profit=min_profit, date_from=sale_date__gte, date_to=sale_date__lte,
+        classes=[parcel_class] if parcel_class else None, limit=limit,
     )
-    t1 = sides.alias("t1")
-    t2 = sides.alias("t2")
-
-    hold_days_expr = days_between(t2.c.sale_date, t1.c.sale_date)
-    profit_expr = t2.c.sale_price - t1.c.sale_price
-    profit_pct_expr = profit_expr / t1.c.sale_price
-
-    query = (
-        select(
-            t1.c.parcel_id,
-            t1.c.parcel_location,
-            t1.c.sale_date.label("buy_date"),
-            t2.c.sale_date.label("sell_date"),
-            t1.c.sale_price.label("buy_price"),
-            t2.c.sale_price.label("sell_price"),
-            hold_days_expr.label("hold_days"),
-            profit_expr.label("profit"),
-            profit_pct_expr.label("profit_pct"),
-            t1.c.new_owner.label("buyer"),
-            t2.c.new_owner.label("seller"),
-        )
-        .select_from(t1.join(
-            t2, (t1.c.parcel_id == t2.c.parcel_id) & (t2.c.sale_date > t1.c.sale_date)
-        ))
-        .where(t1.c.deal_size == 1)
-        .where(t2.c.deal_size == 1)
-        .where(hold_days_expr <= max_hold_days)
-        .where(profit_pct_expr >= min_profit_pct)
-        .where(profit_expr >= min_profit)
-        .order_by(desc(profit_pct_expr))
-        .limit(limit)
-    )
-    if sale_date__gte:
-        query = query.where(t1.c.sale_date >= sale_date__gte)
-    if sale_date__lte:
-        query = query.where(t2.c.sale_date <= sale_date__lte)
-    if parcel_class:
-        query = query.where(t1.c.parcel_class == parcel_class.value)
-
-    result = await session.exec(query)
-    return result.mappings().all()
 
 
 @app.get("/analytics/distressed", response_model=list[DistressedSale])

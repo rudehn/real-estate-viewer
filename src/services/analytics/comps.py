@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from api.errors import not_found
 from db.county_models import Dwelling, ParcelSummary
-from db.criteria import market_sale_criteria
+from db.criteria import market_sale_criteria, single_parcel_criteria
 from db.models import Parcel, Transaction
 from derived.summary import latest_sale_date
 
@@ -74,11 +74,6 @@ def _first_card_style(dw):
 
 async def _candidates(session, subject: dict, since: date, where) -> list[dict]:
     t, ps, dw = Transaction.__table__, ParcelSummary.__table__, Dwelling.__table__
-    other = Transaction.__table__.alias("other")
-    in_deal = sa.exists().where(
-        other.c.sale_date == t.c.sale_date, other.c.new_owner == t.c.new_owner,
-        other.c.sale_price == t.c.sale_price, other.c.parcel_id != t.c.parcel_id,
-    )
     sqft = subject["living_sqft"]
     query = (
         sa.select(t.c.parcel_id, t.c.sale_date, t.c.sale_price, ps.c.address,
@@ -88,7 +83,7 @@ async def _candidates(session, subject: dict, since: date, where) -> list[dict]:
         .join(ps, ps.c.parcel_id == t.c.parcel_id)
         .join(dw, sa.and_(dw.c.parcel_id == t.c.parcel_id, _first_card_style(dw)))
         .where(
-            market_sale_criteria(), ~in_deal, t.c.sale_date >= since,
+            market_sale_criteria(), single_parcel_criteria(), t.c.sale_date >= since,
             t.c.parcel_id != subject["parcel_id"],
             ps.c.living_sqft.between(sqft * 0.8, sqft * 1.2),
             where,
