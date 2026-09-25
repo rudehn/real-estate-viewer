@@ -1,8 +1,15 @@
 """One error shape for /v2: {"error": {"code": str, "message": str}}."""
+from http import HTTPStatus
+
 from fastapi import FastAPI, Request
-from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.utils import is_body_allowed_for_status_code
+from starlette.exceptions import HTTPException
 
 
 class ApiError(Exception):
@@ -39,6 +46,21 @@ async def _validation_error(request: Request, exc: RequestValidationError) -> JS
     return await request_validation_exception_handler(request, exc)
 
 
+async def _http_error(request: Request, exc: HTTPException):
+    """Unmatched /v2 routes, wrong methods and any HTTPException, in the v2 shape."""
+    if not request.url.path.startswith("/v2") or not is_body_allowed_for_status_code(
+        exc.status_code
+    ):
+        return await http_exception_handler(request, exc)
+    try:
+        code = HTTPStatus(exc.status_code).phrase.lower().replace(" ", "_")
+    except ValueError:
+        code = "error"
+    return JSONResponse(_body(code, str(exc.detail)), status_code=exc.status_code,
+                        headers=exc.headers)
+
+
 def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ApiError, _api_error)
     app.add_exception_handler(RequestValidationError, _validation_error)
+    app.add_exception_handler(HTTPException, _http_error)
