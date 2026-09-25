@@ -7,6 +7,12 @@ from datetime import date, datetime
 import sqlalchemy as sa
 from sqlmodel import Field, SQLModel
 
+# Prefix search compares against [prefix, prefix with its last character + 1),
+# which only holds in byte order. Postgres' default linguistic collations
+# (en_US.utf8) ignore spaces and punctuation such as ':' and '[' (the bounds of
+# prefixes ending in 9 and Z), so the search keys use the "C" collation there.
+SEARCH_KEY = sa.String().with_variant(sa.String(collation="C"), "postgresql")
+
 OCCUPANCY_CATEGORIES = (
     "owner_occupied", "company", "trust", "government", "absentee_individual", "unknown",
 )
@@ -147,7 +153,7 @@ class ParcelSummary(SQLModel, table=True):
 
     __tablename__ = "parcel_summary"
     parcel_id: str = Field(primary_key=True)
-    parcel_id_search: str | None = Field(default=None, index=True)
+    parcel_id_search: str | None = Field(default=None, index=True, sa_type=SEARCH_KEY)
     latitude: float | None = None
     longitude: float | None = None
     parcel_class: str
@@ -156,8 +162,8 @@ class ParcelSummary(SQLModel, table=True):
     tax_district: str | None = None
     is_active: bool = True
     address: str | None = None
-    address_search: str | None = Field(default=None, index=True)
-    street_search: str | None = Field(default=None, index=True)
+    address_search: str | None = Field(default=None, index=True, sa_type=SEARCH_KEY)
+    street_search: str | None = Field(default=None, index=True, sa_type=SEARCH_KEY)
     owner_name: str | None = None
     owner_search: str | None = Field(default=None, index=True)
     last_sale_date: date | None = Field(default=None, index=True)
@@ -201,7 +207,7 @@ class OwnerIndex(SQLModel, table=True):
 
     __tablename__ = "owner_index"
     name: str = Field(primary_key=True)
-    name_search: str = Field(index=True)
+    name_search: str = Field(index=True, sa_type=SEARCH_KEY)
     parcel_count: int = 0
 
 

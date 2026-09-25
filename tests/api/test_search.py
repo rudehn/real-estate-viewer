@@ -3,6 +3,7 @@ import datetime as dt
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.cache import cache
+from db.models import Parcel, ParcelClass
 from derived.summary import rebuild_derived
 from tests.api.conftest import sale
 
@@ -68,3 +69,22 @@ async def test_past_owner_with_punctuation(api, county_db):
     for q in ("o'donnell", "odonnell"):
         body = await search(api, q)
         assert {"name": "O'DONNELL MARY", "parcel_count": 0} in body["owners"]
+
+
+async def test_prefix_search_uses_byte_order(api, county_db):
+    """Prefixes ending in Z or 9 have bounds ending in '[' or ':', which a
+    linguistic collation (Postgres en_US) ignores, emptying the range."""
+    async with AsyncSession(county_db) as s:
+        s.add(Parcel(parcel_id="Z99 99999 0009", parcel_location="1239 MAPLE ST",
+                     parcel_class=ParcelClass.R, acres=0.1))
+        s.add(sale("A01 00101 0001", dt.date(2025, 8, 1), 500_000, buyer="MARTINEZ ROSA"))
+        s.add(sale("A01 00101 0001", dt.date(2025, 8, 2), 510_000, buyer="ABBOTT JOHN"))
+        await s.commit()
+    await rebuild_derived(engine=county_db)
+    cache.clear()
+    body = await search(api, "martinez")
+    assert {"name": "MARTINEZ ROSA", "parcel_count": 0} in body["owners"]
+    body = await search(api, "1239")
+    assert [a["address"] for a in body["addresses"]] == ["1239 MAPLE ST"]
+    body = await search(api, "a b")
+    assert body["owners"] == []
