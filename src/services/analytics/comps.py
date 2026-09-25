@@ -8,11 +8,11 @@ from datetime import date, timedelta
 import sqlalchemy as sa
 from pydantic import BaseModel
 
+from api.cache import cached_latest_sale_date
 from api.errors import not_found
 from db.county_models import Dwelling, ParcelSummary
 from db.criteria import market_sale, single_parcel_criteria
 from db.models import Parcel, Transaction
-from derived.summary import latest_sale_date
 
 STYLE_FAMILIES = {
     "01": "split", "02": "split", "03": "ranch", "04": "attached", "05": "two_story",
@@ -142,7 +142,7 @@ async def get_comps(session, parcel_id: str, limit: int = 10) -> CompsResult:
     subject_out = Subject(living_sqft=subject["living_sqft"], beds=subject["beds"],
                           baths=subject["baths"], year_built=subject["year_built"],
                           style=subject["style"])
-    anchor = await latest_sale_date(await session.connection()) or date.today()
+    anchor = await cached_latest_sale_date(session) or date.today()
     since = anchor - timedelta(days=LOOKBACK_DAYS)
 
     basis = "neighborhood"

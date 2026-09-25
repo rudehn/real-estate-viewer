@@ -5,12 +5,11 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from api.cache import cache, data_version
+from api.cache import cache, cached_latest_sale_date, data_version
 from county.sources import DATASETS
 from db.county_models import DataVersion, ParcelSummary
 from db.engine import get_session
 from db.models import DataFile
-from derived.summary import latest_sale_date
 
 router = APIRouter(tags=["meta"])
 
@@ -67,8 +66,7 @@ async def _ranges(session: AsyncSession) -> dict[str, list[float]]:
 async def meta(session: AsyncSession = Depends(get_session)) -> Meta:
     version = await data_version(session)
     today = dt.date.today()
-    conn = await session.connection()
-    latest = await latest_sale_date(conn)
+    latest = await cached_latest_sale_date(session)
     s = ParcelSummary.__table__
     parcel_count = (await session.exec(sa.select(sa.func.count()).select_from(s))).scalar_one()
     mapped = (await session.exec(

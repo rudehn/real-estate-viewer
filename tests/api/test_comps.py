@@ -45,6 +45,7 @@ async def comps_api(db_engine):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         yield c, db_engine
     app.dependency_overrides.clear()
+    cache.clear()
 
 
 async def add(engine, *groups):

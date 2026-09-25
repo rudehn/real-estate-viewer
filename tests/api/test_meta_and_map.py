@@ -4,6 +4,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 import derived.mapbinary as mb
 from db.models import DataFile
+from derived.summary import bump_data_version
+from tests.api.conftest import sale
 
 
 async def test_meta(api):
@@ -18,6 +20,23 @@ async def test_meta(api):
     assert sales["as_of"] == "2025-08-20"
     assert sales["stale"] is True  # older than 14 days
     assert {"price", "living_sqft", "year_built"} <= set(body["ranges"])
+
+
+async def test_latest_sale_date_is_cached_per_data_version(api, county_db):
+    async def anchors():
+        meta = (await api.get("/v2/meta")).json()["latest_sale_date"]
+        market = (await api.get("/v2/market/summary")).json()["anchor_date"]
+        return meta, market
+
+    assert await anchors() == ("2025-08-20", "2025-08-20")
+    async with AsyncSession(county_db) as s:
+        s.add(sale("R72 00304 0025", dt.date(2025, 9, 10), 360_000, buyer="BUYER T",
+                   seller="BUYER S"))
+        await s.commit()
+    assert await anchors() == ("2025-08-20", "2025-08-20")  # same data_version: cached
+    async with county_db.begin() as conn:
+        await bump_data_version(conn)
+    assert await anchors() == ("2025-09-10", "2025-09-10")
 
 
 async def test_meta_matches_differently_cased_filenames(api, county_db):

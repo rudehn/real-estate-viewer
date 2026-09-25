@@ -5,11 +5,13 @@ simply age out of the LRU.
 """
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
+from datetime import date
 from typing import Any
 
 import sqlalchemy as sa
 
 from db.county_models import DataVersion
+from derived.summary import latest_sale_date
 
 
 class VersionedCache:
@@ -41,3 +43,12 @@ async def data_version(session) -> int:
     t = DataVersion.__table__
     result = await session.exec(sa.select(t.c.version).where(t.c.id == 1))
     return result.scalar_one_or_none() or 0
+
+
+async def cached_latest_sale_date(session) -> date | None:
+    """The newest market sale date; a scan of the sales table, so cached per data_version."""
+    version = await data_version(session)
+    connection = await session.connection()
+    return await cache.get_or_compute(
+        ("latest-sale-date",), version, lambda: latest_sale_date(connection)
+    )

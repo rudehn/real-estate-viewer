@@ -14,11 +14,11 @@ import sqlalchemy as sa
 from pydantic import BaseModel
 from sqlalchemy import Select, Subquery
 
+from api.cache import cached_latest_sale_date
 from api.filters import Filters, needs_summary, sale_conditions
 from db.county_models import ParcelSummary
 from db.criteria import market_sale, single_parcel_criteria
 from db.models import MarketStatsBucket, OwnerStats, Parcel, Transaction
-from derived.summary import latest_sale_date
 from services.owner_names import merge_owner_rows
 
 
@@ -244,7 +244,7 @@ def _label(start: date, end: date) -> str:
 
 
 async def market_summary(session, f: Filters) -> MarketSummary:
-    anchor = await latest_sale_date(await session.connection())
+    anchor = await cached_latest_sale_date(session)
     apply = _apply_filters(f, join_summary=needs_summary(f))
     totals = await market_buckets(session, granularity="all", market_only=True, apply=apply)
     if anchor is None:
