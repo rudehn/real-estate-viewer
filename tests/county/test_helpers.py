@@ -92,3 +92,5 @@ def test_search_text_helpers():
     assert street_key("PHEASANT RIDGE RD") == "PHEASANT RIDGE RD"
     # A street literally named with a direction letter keeps it.
     assert street_key("120 E ST") == "E ST"
+    # Regression: straight and curly apostrophes must normalize identically.
+    assert normalize_search("D'ANGELO") == normalize_search("D'ANGELO") == "DANGELO"

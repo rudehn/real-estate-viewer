@@ -6,7 +6,7 @@ and Postgres (LIKE 'x%' cannot use an index on either without extra setup).
 """
 import re
 
-_DROP = re.compile(r"[''.]")
+_DROP = re.compile(r"['’.]")
 _TO_SPACE = re.compile(r"[^A-Z0-9 ]+")
 _SPACES = re.compile(r"\s+")
 _HOUSE_NUMBER = re.compile(r"^\d+[A-Z]?\s+")
