@@ -1,22 +1,20 @@
 import asyncio
+import os
+import sys
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-
-from alembic import context
-
 from sqlmodel import SQLModel
-import sys
-import os
 
 # Add the src folder to python path so imports work
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '../src'))
 
 # Import your models so SQLModel knows about them!
 # IMPORTANT: Import the specific file where 'class Parcel' is defined
-from db.models import * # -------------------------
+from db.models import *  # -------------------------
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

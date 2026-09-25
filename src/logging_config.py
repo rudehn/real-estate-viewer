@@ -3,18 +3,10 @@ import sys
 
 
 def get_logger(name: str) -> logging.Logger:
-    logger = logging.getLogger(name)
-    if not logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-        )
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-    return logger
+    # Module loggers carry no handlers of their own: records propagate to the
+    # root handler set up once by configure_logging() at each entry point
+    # (main.py, cli.py). A handler here too would print every line twice.
+    return logging.getLogger(name)
 
 
 def configure_logging(level: str = "INFO") -> None:

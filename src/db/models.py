@@ -11,7 +11,7 @@ class ParcelClass(Enum):
     A="Agricultural"
     C="Commercial"
     E="Exempt"
-    I="Industrial"
+    I="Industrial"  # noqa: E741 - the county's class code
     R="Residential"
     U="Utilities"
 
@@ -44,10 +44,16 @@ class Parcel(ParcelBase, table=True):
 class ParcelResponse(ParcelBase):
     ...
 
+SOURCE_YEARLY = "yearly"
+SOURCE_WEEKLY = "weekly"
+
+
 class TransactionBase(SQLModel):
     # Years 2001-2002 don't have the fields that are marked as optional (beside the id)
     id: int | None = Field(default=None, primary_key=True, index=True)
-    parcel_id: str = Field(description="Parcel Identification Number", foreign_key="parcel.parcel_id")
+    parcel_id: str = Field(
+        description="Parcel Identification Number", foreign_key="parcel.parcel_id", index=True
+    )
     conv_num: int | None = Field(description="Conveyance Number")
     sale_date: date = Field(description="Sale Date", index=True)
     sale_price: float = Field(description="Sale Price", index=True)
@@ -75,21 +81,38 @@ class TransactionBase(SQLModel):
 class Transaction(TransactionBase, table=True):
     """Representation of an item"""
 
-    # Natural key: the county has no stable row id, and the weekly ZIPs
-    # overlap both each other and the yearly files, so uniqueness lives here.
-    # conv_num is NULL in the 2001-2002 files; COALESCE keeps those rows
-    # comparable (NULLs never collide in a unique index on either dialect).
+    # The county has no stable row id and publishes each sale several times:
+    # in weekly ZIPs shortly after recording, then in every monthly re-export
+    # of the yearly file. Snapshots drift (the weekly OWNERNAME1 is often the
+    # owner at export time rather than the buyer), so a sale is identified by
+    # its conveyance: parcel, date and conv_num, plus the seller because the
+    # county occasionally records two chained same-day conveyances under one
+    # conv_num. The 2001-2002 files have no conv_num at all; those rows never
+    # drift (the files are final), so they keep the full-row key.
     __table_args__ = (
         Index(
-            "uq_transaction_natural",
-            "parcel_id",
-            "sale_date",
-            "sale_price",
-            "old_owner",
-            "new_owner",
-            text("coalesce(conv_num, -1)"),
+            "uq_transaction_conveyance",
+            "parcel_id", "sale_date", "conv_num", "old_owner",
             unique=True,
+            sqlite_where=text("conv_num IS NOT NULL"),
+            postgresql_where=text("conv_num IS NOT NULL"),
         ),
+        Index(
+            "uq_transaction_legacy",
+            "parcel_id", "sale_date", "sale_price", "old_owner", "new_owner",
+            unique=True,
+            sqlite_where=text("conv_num IS NULL"),
+            postgresql_where=text("conv_num IS NULL"),
+        ),
+    )
+
+    # Which county export last wrote this row. "yearly" rows are authoritative
+    # and overwrite earlier snapshots; "weekly" rows are provisional until the
+    # yearly export covering them arrives (see db/ingestors.py).
+    source: str = Field(
+        default=SOURCE_WEEKLY,
+        sa_column_kwargs={"server_default": SOURCE_WEEKLY},
+        description="County export that last wrote this row: yearly or weekly",
     )
 
     # Define the relationship
@@ -102,8 +125,11 @@ class TransactionResponse(TransactionBase):
 
 class DataFile(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True, index=True)
-    filename: str = Field(description="The ingested file name")
+    filename: str = Field(description="The ingested file name (no directory)")
     ingested_at: datetime = Field(description="The time the file was ingested")
+    # SHA-256 of the file's bytes: the current-year file is re-exported under
+    # the same name, so a changed hash means new data to ingest.
+    content_hash: str | None = Field(default=None, description="SHA-256 of the file")
 
 
 

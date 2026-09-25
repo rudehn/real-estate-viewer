@@ -31,6 +31,9 @@ function StreetView({
     const src = `https://maps.googleapis.com/maps/api/streetview?size=800x300&location=${lat},${lng}&key=${MAPS_KEY}`;
     return (
       <a href={mapsUrl} target="_blank" rel="noreferrer">
+        {/* The Street View API already serves a sized image; next/image would
+            re-host a keyed, metered API URL through the optimizer. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={src} alt={`Street view of ${address}`}
           className="w-full rounded-lg object-cover h-[220px] bg-muted" />
       </a>

@@ -1,10 +1,12 @@
 import asyncio
+
 import typer
+
 from db.engine import init_db
 from db.ingestors import ingest_data_files, ingest_weekly_data
+from logging_config import configure_logging, get_logger
 from services.data_retrieval import retrieve_yearly_data
 from services.geocoding import geocode_parcels
-from logging_config import configure_logging, get_logger
 
 app = typer.Typer()
 logger = get_logger(__name__)

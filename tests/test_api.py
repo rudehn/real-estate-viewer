@@ -4,10 +4,7 @@ Uses an in-memory SQLite database via the session fixture in conftest.py.
 """
 import datetime
 
-import pytest
-
 from db.models import Parcel, ParcelClass, Transaction
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,9 +66,29 @@ async def test_transactions_returns_inserted_record(client, session):
     assert data["entities"][0]["sale_price"] == 200000.0
 
 
+async def test_transaction_by_id(client, session):
+    session.add(make_parcel())
+    txn = make_transaction()
+    session.add(txn)
+    await session.commit()
+
+    response = await client.get(f"/transactions/{txn.id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["sale_price"] == 200000.0
+    assert data["parcel"]["parcel_location"] == "123 MAIN ST"
+
+
+async def test_transaction_by_id_unknown(client):
+    response = await client.get("/transactions/999")
+    assert response.status_code == 404
+
+
 async def test_transactions_filter_by_parcel_class(client, session):
     parcel_r = make_parcel(parcel_id="P001", parcel_class=ParcelClass.R)
-    parcel_c = make_parcel(parcel_id="P002", parcel_location="456 OAK ST", parcel_class=ParcelClass.C)
+    parcel_c = make_parcel(
+        parcel_id="P002", parcel_location="456 OAK ST", parcel_class=ParcelClass.C
+    )
     txn_r = make_transaction(parcel_id="P001", parcel_class=ParcelClass.R)
     txn_c = make_transaction(parcel_id="P002", parcel_class=ParcelClass.C)
     session.add_all([parcel_r, parcel_c, txn_r, txn_c])
@@ -224,7 +241,9 @@ async def test_market_stats_excludes_non_market_sales(client, session):
     session.add(make_transaction(sale_price=200_000))
     # Nominal transfer and county-flagged non-market sale must not count
     session.add(make_transaction(sale_price=0))
-    session.add(make_transaction(sale_price=150_000, sale_validity="RELATED INDIVIDUALS OR CORPORATIONS"))
+    session.add(make_transaction(
+        sale_price=150_000, sale_validity="RELATED INDIVIDUALS OR CORPORATIONS"
+    ))
     # Multi-parcel sales carry the whole deal price on each row; excluded from stats
     session.add(make_transaction(sale_price=800_000, sale_validity="VALID MULTI-PCL SALE"))
     # Unflagged portfolio deal: same buyer/date/price on several parcels
@@ -363,8 +382,12 @@ async def test_acquisition_waves_one_window_per_owner(client, session):
 async def test_flips_hold_days_computed_correctly(client, session):
     session.add(make_parcel())
     # Real flip: bought then resold 152 days later at +100%
-    session.add(make_transaction(sale_date=datetime.date(2020, 1, 1), sale_price=100_000, new_owner="FLIPPER"))
-    session.add(make_transaction(sale_date=datetime.date(2020, 6, 1), sale_price=200_000, old_owner="FLIPPER"))
+    session.add(make_transaction(
+        sale_date=datetime.date(2020, 1, 1), sale_price=100_000, new_owner="FLIPPER"
+    ))
+    session.add(make_transaction(
+        sale_date=datetime.date(2020, 6, 1), sale_price=200_000, old_owner="FLIPPER"
+    ))
     await session.commit()
 
     response = await client.get("/analytics/flips")
@@ -380,8 +403,12 @@ async def test_flips_excludes_long_holds_and_nominal_buys(client, session):
     session.add(make_transaction(sale_date=datetime.date(2012, 5, 14), sale_price=100_000))
     session.add(make_transaction(sale_date=datetime.date(2017, 10, 25), sale_price=200_000))
     # $2 nominal "buy" resold high: not a flip either
-    session.add(make_transaction(parcel_id="P001", sale_date=datetime.date(2020, 1, 1), sale_price=2))
-    session.add(make_transaction(parcel_id="P001", sale_date=datetime.date(2020, 3, 1), sale_price=1_325_000))
+    session.add(make_transaction(
+        parcel_id="P001", sale_date=datetime.date(2020, 1, 1), sale_price=2
+    ))
+    session.add(make_transaction(
+        parcel_id="P001", sale_date=datetime.date(2020, 3, 1), sale_price=1_325_000
+    ))
     await session.commit()
 
     response = await client.get("/analytics/flips")

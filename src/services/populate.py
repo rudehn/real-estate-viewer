@@ -3,14 +3,15 @@
 Runs the full data-population sequence so the database fills itself after the
 app is deployed - no manual CLI steps required:
 
-  1. Download yearly sales CSVs from the county site (all years, current year
-     always refreshed) to DATA_DIR.
+  1. Download yearly sales CSVs from the county site (all years, current and
+     previous year always refreshed) to DATA_DIR.
   2. Ingest those CSVs into the DB.
   3. Download and ingest any new weekly sales ZIPs.
   4. Geocode parcels that are missing coordinates (for the map view).
 
-Every step is idempotent: already-ingested files are skipped (DataFile dedup)
-and already-geocoded parcels are skipped, so re-runs are cheap and safe. The
+Every step is idempotent: files whose exact content was already ingested are
+skipped (DataFile name + content hash) and already-geocoded parcels are
+skipped, so re-runs are cheap and safe. The
 backend runs this once on startup and then on a repeating interval (see
 `run_population_loop`), guarded by the AUTO_INGEST env var.
 """
@@ -19,9 +20,9 @@ import asyncio
 import os
 
 from db.ingestors import ingest_data_files, ingest_weekly_data
+from logging_config import get_logger
 from services.data_retrieval import DATA_DIR, retrieve_yearly_data
 from services.geocoding import CENSUS_BATCH_LIMIT, geocode_parcels
-from logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -33,31 +34,57 @@ def _env_flag(name: str, default: bool) -> bool:
     return os.getenv(name, str(default)).lower() in ("1", "true", "yes", "on")
 
 
-async def populate_once() -> None:
-    """Run one full download -> ingest -> geocode pass."""
-    logger.info("Population run starting (DATA_DIR=%s)...", DATA_DIR)
+async def _run_step(name: str, step) -> None:
+    """Run one pipeline step, logging (not raising) any failure.
 
-    # 1 + 2. Yearly history. retrieve_yearly_data is blocking (httpx.get +
-    # zip extraction), so run it off the event loop.
+    The steps are independent - weekly ingest does not need the yearly files,
+    and geocoding works on whatever parcels exist - so one broken step (e.g. a
+    county-site outage on the yearly download) must not starve the others.
+    """
+    try:
+        await step()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("Population step '%s' failed; continuing.", name)
+
+
+async def _yearly() -> None:
+    # retrieve_yearly_data is blocking (httpx.get + zip extraction), so run it
+    # off the event loop.
     logger.info("Downloading yearly sales data...")
     await asyncio.to_thread(retrieve_yearly_data)
     logger.info("Ingesting yearly sales data...")
     await ingest_data_files(DATA_DIR)
 
-    # 3. Recent weekly sales.
+
+async def _weekly() -> None:
     logger.info("Ingesting new weekly sales data...")
     await ingest_weekly_data()
 
+
+async def _geocode() -> None:
+    logger.info("Geocoding parcels missing coordinates...")
+    for _ in range(_MAX_GEOCODE_BATCHES):
+        processed = await geocode_parcels(batch_size=CENSUS_BATCH_LIMIT)
+        if not processed:
+            break
+    else:
+        logger.info("Hit geocode batch cap (%d); more remain for next run.",
+                    _MAX_GEOCODE_BATCHES)
+
+
+async def populate_once() -> None:
+    """Run one full download -> ingest -> geocode pass."""
+    logger.info("Population run starting (DATA_DIR=%s)...", DATA_DIR)
+
+    # 1 + 2. Yearly history.
+    await _run_step("yearly", _yearly)
+    # 3. Recent weekly sales.
+    await _run_step("weekly", _weekly)
     # 4. Geocoding (optional).
     if _env_flag("GEOCODE", True):
-        logger.info("Geocoding parcels missing coordinates...")
-        for i in range(_MAX_GEOCODE_BATCHES):
-            processed = await geocode_parcels(batch_size=CENSUS_BATCH_LIMIT)
-            if not processed:
-                break
-        else:
-            logger.info("Hit geocode batch cap (%d); more remain for next run.",
-                        _MAX_GEOCODE_BATCHES)
+        await _run_step("geocode", _geocode)
 
     logger.info("Population run complete.")
 
