@@ -6,7 +6,7 @@ from datetime import date
 import sqlalchemy as sa
 
 from db.criteria import market_sale
-from db.models import ParcelClass, Transaction
+from db.models import Parcel, ParcelClass, Transaction
 from db.sqlutil import days_between
 
 
@@ -22,6 +22,7 @@ async def distressed_sales(
 ) -> list[dict]:
     """Find sales where the price was significantly below assessed value."""
     ratio_expr = (Transaction.sale_price / Transaction.assessed_total).label("assessed_ratio")
+    parcel = Parcel.__table__
     # Nominal/family transfers are excluded (they're cheap by construction,
     # not distressed) but foreclosures and liquidations are kept - those are
     # exactly the distress signal this view exists to surface.
@@ -35,9 +36,12 @@ async def distressed_sales(
             Transaction.assessed_total,
             ratio_expr,
             Transaction.new_owner,
-            Transaction.neighborhood,
+            # The sale row's own neighborhood is mostly empty; the parcel's is current.
+            parcel.c.neighborhood,
             Transaction.parcel_class,
         )
+        .select_from(Transaction)
+        .outerjoin(parcel, parcel.c.parcel_id == Transaction.parcel_id)
         .where(market_sale(include_distress=True))
         .where(Transaction.assessed_total >= min_assessed)
         .where(Transaction.sale_price / Transaction.assessed_total <= max_ratio)
