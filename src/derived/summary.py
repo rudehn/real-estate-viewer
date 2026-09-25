@@ -214,7 +214,7 @@ async def build_neighborhood_summary(conn: AsyncConnection, anchor: date | None)
                 "code": code,
                 "parcel_count": len(members),
                 "residential_count": len(residential),
-                "sales_24m": len(recent),
+                "parcels_sold_24m": len(recent),
                 "median_sale_price_24m": _median([m.last_sale_price for m in recent]),
                 "median_price_per_sqft_24m": _median(
                     [m.price_per_sqft for m in recent if m.price_per_sqft]

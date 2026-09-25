@@ -15,7 +15,7 @@ from derived import mapbinary
 
 router = APIRouter(prefix="/map", tags=["map"])
 _GEOJSON = Path(__file__).parent.parent.parent / "county" / "data" / "neighborhoods.geojson"
-_STATS = ("parcel_count", "residential_count", "sales_24m", "median_sale_price_24m",
+_STATS = ("parcel_count", "residential_count", "parcels_sold_24m", "median_sale_price_24m",
           "median_price_per_sqft_24m", "owner_occupied_share", "median_year_built",
           "median_value_change_pct")
 

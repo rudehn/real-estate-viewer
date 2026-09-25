@@ -58,6 +58,7 @@ async def test_neighborhood_geojson_has_stats(api):
     butler = features["48150000"]["properties"]
     assert butler["name"] == "N BUTLER TWP"
     assert butler["parcel_count"] == 2
+    assert butler["parcels_sold_24m"] == 0
     assert features["48150000"]["geometry"]["type"] in ("Polygon", "MultiPolygon")
 
 

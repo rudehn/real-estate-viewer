@@ -141,7 +141,7 @@ async def test_neighborhood_summary_recent_sales(loaded):
     await rebuild_derived(engine=loaded)
     async with AsyncSession(loaded) as s:
         ranch_neighborhood = await s.get(NeighborhoodSummary, "15007000")
-    assert ranch_neighborhood.sales_24m == 1
+    assert ranch_neighborhood.parcels_sold_24m == 1
     assert ranch_neighborhood.median_sale_price_24m == 150_000
     assert ranch_neighborhood.median_price_per_sqft_24m == pytest.approx(150_000 / 1008)
 

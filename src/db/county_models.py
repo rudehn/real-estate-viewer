@@ -190,7 +190,7 @@ class NeighborhoodSummary(SQLModel, table=True):
     code: str = Field(primary_key=True)
     parcel_count: int = 0
     residential_count: int = 0
-    sales_24m: int = 0
+    parcels_sold_24m: int = 0
     median_sale_price_24m: float | None = None
     median_price_per_sqft_24m: float | None = None
     owner_occupied_share: float | None = None
