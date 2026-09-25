@@ -150,8 +150,10 @@ def _add_parcel_columns(sync_conn) -> None:
 
 def repair_schema(sync_conn) -> None:
     """Every idempotent repair, in order. Safe to run on any database."""
-    _add_parcel_columns(sync_conn)
-    if inspect(sync_conn).has_table("transaction"):
+    inspector = inspect(sync_conn)
+    if inspector.has_table("parcel"):
+        _add_parcel_columns(sync_conn)
+    if inspector.has_table("transaction"):
         _repair(sync_conn)
 
 
