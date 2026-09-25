@@ -188,7 +188,7 @@ class NeighborhoodSummary(SQLModel, table=True):
     median_sale_price_24m: float | None = None
     median_price_per_sqft_24m: float | None = None
     owner_occupied_share: float | None = None
-    median_year_built: int | None = None
+    median_year_built: float | None = None
     median_value_change_pct: float | None = None
 
 
