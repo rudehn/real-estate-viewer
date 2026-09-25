@@ -5,6 +5,7 @@ run, so readers always see one consistent version.
 """
 from __future__ import annotations
 
+import asyncio
 import statistics
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -83,6 +84,7 @@ def _dwelling_totals():
 
 
 async def build_parcel_summary(conn: AsyncConnection) -> int:
+    """Rows are normalized in a worker thread, chunk by chunk, by insert_rows."""
     p, v, tx = Parcel.__table__, ParcelValue.__table__, ParcelTax.__table__
     last, dw = _last_market_sales(), _dwelling_totals()
     ppsf = sa.case(
@@ -148,19 +150,22 @@ async def build_parcel_summary(conn: AsyncConnection) -> int:
 
 
 async def build_owner_index(conn: AsyncConnection) -> int:
-    """One row per distinct owner name: active parcel count, or 0 for past buyers only."""
+    """One row per distinct owner name: active parcel count, or 0 for past buyers only.
+
+    The merge and normalization run in a worker thread (insert_rows pulls rows()).
+    """
     s, t = ParcelSummary.__table__, Transaction.__table__
     current = (await conn.execute(
         sa.select(s.c.owner_name, sa.func.count().label("n"))
         .where(s.c.is_active.is_(True), s.c.owner_name.isnot(None))
         .group_by(s.c.owner_name)
     )).all()
-    counts = {name: n for name, n in current}
     past_owners = (await conn.execute(sa.select(t.c.new_owner).distinct())).scalars().all()
-    for name in past_owners:
-        counts.setdefault(name, 0)
 
     def rows():
+        counts = {name: n for name, n in current}
+        for name in past_owners:
+            counts.setdefault(name, 0)
         for name, count in counts.items():
             search = normalize_search(name)
             if not search:
@@ -183,6 +188,7 @@ def _median(values: list[float]) -> float | None:
 
 
 async def build_neighborhood_summary(conn: AsyncConnection, anchor: date | None) -> int:
+    """Grouping and medians run in a worker thread (insert_rows pulls out())."""
     s = ParcelSummary.__table__
     rows = (await conn.execute(
         sa.select(
@@ -191,11 +197,11 @@ async def build_neighborhood_summary(conn: AsyncConnection, anchor: date | None)
         ).where(s.c.is_active.is_(True), s.c.neighborhood.isnot(None))
     )).all()
     since = (anchor - timedelta(days=730)) if anchor else None
-    groups: dict[str, list] = defaultdict(list)
-    for row in rows:
-        groups[row.neighborhood].append(row)
 
     def out():
+        groups: dict[str, list] = defaultdict(list)
+        for row in rows:
+            groups[row.neighborhood].append(row)
         for code, members in groups.items():
             residential = [m for m in members if m.parcel_class == "R"]
             recent = [
@@ -258,6 +264,6 @@ async def rebuild_derived(engine: AsyncEngine | None = None) -> int:
 
     async with engine.connect() as conn:
         data = await build_map_binary(conn, version)
-    path = write_map_binary(data, version)
+    path = await asyncio.to_thread(write_map_binary, data, version)
     logger.info("Wrote map binary %s (%d KB)", path, len(data) // 1024)
     return version

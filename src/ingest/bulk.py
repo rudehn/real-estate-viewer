@@ -29,10 +29,14 @@ def _chunk_size(table: sa.Table) -> int:
 
 
 async def insert_rows(conn: AsyncConnection, table: sa.Table, rows: Iterable[dict]) -> int:
-    size = _chunk_size(table)
-    iterator = iter(rows)
+    """Insert rows in parameter-budget chunks.
+
+    Rows are pulled in a worker thread (in_thread_chunks), so a generator that
+    does CPU work per row keeps it off the event loop; the inserts themselves
+    stay on the async connection.
+    """
     written = 0
-    while chunk := list(islice(iterator, size)):
+    async for chunk in in_thread_chunks(iter(rows), size=_chunk_size(table)):
         await conn.execute(sa.insert(table), chunk)
         written += len(chunk)
     return written

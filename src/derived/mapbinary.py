@@ -5,6 +5,7 @@ for the column list; the frontend decoder must match it.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import os
@@ -12,6 +13,7 @@ import re
 import struct
 import sys
 from array import array
+from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
 
@@ -44,7 +46,7 @@ def _clamp(value, top: int, missing: int) -> int:
     return max(0, min(int(round(value)), top))
 
 
-def encode_map_binary(rows: list[dict], version: int) -> bytes:
+def encode_map_binary(rows: Sequence[Mapping], version: int) -> bytes:
     neighborhoods = sorted({r["neighborhood"] for r in rows if r["neighborhood"]})
     nbhd_index = {code: i for i, code in enumerate(neighborhoods)}
     columns: list[tuple[str, str, array, list | None]] = [
@@ -123,14 +125,15 @@ def decode_map_binary(data: bytes) -> dict:
 
 
 async def build_map_binary(conn: AsyncConnection, version: int) -> bytes:
+    """Reads on the async connection; encodes in a worker thread."""
     s = ParcelSummary.__table__
     result = await conn.execute(
         sa.select(s)
         .where(s.c.is_active.is_(True), s.c.latitude.isnot(None), s.c.longitude.isnot(None))
         .order_by(s.c.parcel_id)
     )
-    rows = [dict(r) for r in result.mappings()]
-    return encode_map_binary(rows, version)
+    rows = result.mappings().all()
+    return await asyncio.to_thread(encode_map_binary, rows, version)
 
 
 def map_binary_path(version: int) -> Path:
