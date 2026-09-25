@@ -6,7 +6,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from db.county_models import NeighborhoodSummary, ParcelSummary
 from db.models import Parcel, ParcelClass, Transaction
-from derived.summary import current_data_version, rebuild_derived
+from derived.summary import current_data_version, latest_sale_date, rebuild_derived
 from ingest.cama_ingest import ingest_cama
 from ingest.taxroll_ingest import ingest_taxroll
 
@@ -102,6 +102,20 @@ async def test_neighborhood_summary(loaded):
         butler = await s.get(NeighborhoodSummary, "48150000")
     assert (butler.parcel_count, butler.residential_count) == (2, 2)
     assert butler.median_year_built == pytest.approx((1919 + 1985) / 2)
+
+
+async def test_latest_sale_date_is_the_newest_market_row(loaded):
+    async with loaded.connect() as conn:
+        assert await latest_sale_date(conn) == dt.date(2025, 7, 1)
+
+
+async def test_neighborhood_summary_recent_sales(loaded):
+    await rebuild_derived(engine=loaded)
+    async with AsyncSession(loaded) as s:
+        ranch_neighborhood = await s.get(NeighborhoodSummary, "15007000")
+    assert ranch_neighborhood.sales_24m == 1
+    assert ranch_neighborhood.median_sale_price_24m == 150_000
+    assert ranch_neighborhood.median_price_per_sqft_24m == pytest.approx(150_000 / 1008)
 
 
 async def test_data_version_increments(loaded):
