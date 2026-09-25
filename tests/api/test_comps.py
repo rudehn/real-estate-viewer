@@ -13,7 +13,8 @@ from main import app
 SNAP = dt.date(2026, 8, 31)
 
 
-def home(pid, nbhd, sqft, beds, baths, year, style, lat, lng, sale=None, buyer="B"):
+def home(pid, nbhd, sqft, beds, baths, year, style, lat, lng, sale=None, buyer="B",
+         assessed=None):
     rows = [
         Parcel(parcel_id=pid, parcel_location=f"{pid} ST", parcel_class=ParcelClass.R, acres=0.1,
                neighborhood=nbhd, latitude=lat, longitude=lng),
@@ -28,7 +29,7 @@ def home(pid, nbhd, sqft, beds, baths, year, style, lat, lng, sale=None, buyer="
             parcel_id=pid, sale_date=sale[0], sale_price=sale[1], old_owner="S", new_owner=buyer,
             parcel_location="X", mailing_name=buyer, mailing_address="X",
             parcel_class=ParcelClass.R, acres=0.1, taxable_land=0, taxable_building=0,
-            taxable_total=0, sale_validity="VALID SALE"))
+            taxable_total=0, assessed_total=assessed, sale_validity="VALID SALE"))
     return rows
 
 
@@ -104,3 +105,33 @@ async def test_no_dwelling_means_no_comps(comps_api):
     body = (await api.get("/v2/parcels/LOT/comps")).json()
     assert (body["basis"], body["comps"]) == ("none", [])
     assert body["message"] == "No dwelling on record to compare"
+
+
+async def test_nominal_price_is_not_a_comp(comps_api):
+    api, engine = comps_api
+    d = dt.date(2026, 6, 1)
+    await add(
+        engine,
+        home("S", "NB1", 1500, 3, 2, 1960, "03", 39.70, -84.10),
+        home("C1", "NB1", 1500, 3, 2, 1960, "03", 39.701, -84.10, (d, 200_000), "B1"),
+        # Above the $1,000 floor but under 10% of the county's value.
+        home("NOMINAL", "NB1", 1500, 3, 2, 1960, "03", 39.702, -84.10, (d, 5_000), "B2",
+             assessed=180_000),
+    )
+    body = (await api.get("/v2/parcels/S/comps")).json()
+    assert {c["parcel_id"] for c in body["comps"]} == {"C1"}
+
+
+async def test_multi_parcel_deal_is_not_a_comp(comps_api):
+    """A deal's price is recorded on every parcel it covers, so no row is a comp."""
+    api, engine = comps_api
+    d = dt.date(2026, 6, 1)
+    await add(
+        engine,
+        home("S", "NB1", 1500, 3, 2, 1960, "03", 39.70, -84.10),
+        home("C1", "NB1", 1500, 3, 2, 1960, "03", 39.701, -84.10, (d, 200_000), "B1"),
+        home("DEAL1", "NB1", 1500, 3, 2, 1960, "03", 39.702, -84.10, (d, 900_000), "FUND"),
+        home("DEAL2", "NB9", 3000, 5, 3, 1990, "07", 39.90, -84.30, (d, 900_000), "FUND"),
+    )
+    body = (await api.get("/v2/parcels/S/comps")).json()
+    assert {c["parcel_id"] for c in body["comps"]} == {"C1"}

@@ -70,6 +70,14 @@ async def test_flips_exclude_multi_parcel_deals(api):
     ]
 
 
+async def test_flips_class_filter(api):
+    page = await get(api, "/v2/sales/flips", classes="R")
+    assert page["applied_filters"] == ["classes"]
+    assert [f["parcel_id"] for f in page["rows"]] == ["R72 00304 0025"]
+    page = await get(api, "/v2/sales/flips", classes="C")
+    assert page["rows"] == []
+
+
 async def test_total_counts_every_matching_row(api):
     for params in ({}, {"market_only": "true"}, {"neighborhood": "15007000"},
                    {"neighborhood": "15007000", "market_only": "true"},

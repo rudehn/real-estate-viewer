@@ -83,6 +83,19 @@ def plausible_price_criteria() -> object:
     )
 
 
+def market_sale(include_multi_parcel: bool = False, include_distress: bool = False) -> object:
+    """The one definition of a market sale: arm's length and a plausible price.
+
+    Deal handling stays with the caller: price statistics also drop every row
+    of a multi-parcel deal, via single_parcel_criteria() or a deal_size window.
+    """
+    return and_(
+        market_sale_criteria(include_multi_parcel=include_multi_parcel,
+                             include_distress=include_distress),
+        plausible_price_criteria(),
+    )
+
+
 def single_parcel_criteria() -> object:
     """Not part of a deal covering several parcels (same date, buyer and price).
 

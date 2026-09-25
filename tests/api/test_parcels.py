@@ -1,4 +1,9 @@
+import datetime as dt
+
 import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from tests.api.conftest import sale
 
 
 async def test_full_profile(api):
@@ -51,6 +56,17 @@ async def test_unknown_parcel_is_404(api):
     r = await api.get("/v2/parcels/NOPE")
     assert r.status_code == 404
     assert r.json() == {"error": {"code": "not_found", "message": "Parcel NOPE not found"}}
+
+
+async def test_timeline_marks_nominal_price_as_transfer(api, county_db):
+    async with AsyncSession(county_db) as s:
+        nominal = sale("N64 00101 0003", dt.date(2025, 8, 1), 5_000, buyer="NOMINAL BUYER")
+        nominal.assessed_total = 148_000
+        s.add(nominal)
+        await s.commit()
+    events = (await api.get("/v2/parcels/N64 00101 0003/timeline")).json()
+    event = next(e for e in events if e["date"] == "2025-08-01")
+    assert (event["title"], event["detail"]["is_market_sale"]) == ("Transferred", False)
 
 
 async def test_timeline(api):

@@ -16,7 +16,7 @@ from sqlalchemy import Select, Subquery
 
 from api.filters import Filters, needs_summary, sale_conditions
 from db.county_models import ParcelSummary
-from db.criteria import market_sale_criteria, plausible_price_criteria, single_parcel_criteria
+from db.criteria import market_sale, single_parcel_criteria
 from db.models import MarketStatsBucket, OwnerStats, Parcel, Transaction
 from derived.summary import latest_sale_date
 from services.owner_names import merge_owner_rows
@@ -58,7 +58,7 @@ async def market_buckets(
         deal_rows = deal_rows.add_columns(sa.literal(None, type_=sa.Float).label("ppsf"))
 
     if market_only:
-        deal_rows = deal_rows.where(market_sale_criteria())
+        deal_rows = deal_rows.where(market_sale())
     else:
         deal_rows = deal_rows.where(Transaction.sale_price > 0)
     deal_rows = apply(deal_rows).subquery()
@@ -171,7 +171,7 @@ async def top_buyers(
         .limit(limit * 3)
     )
     if market_only:
-        query = query.where(market_sale_criteria(include_multi_parcel=True))
+        query = query.where(market_sale(include_multi_parcel=True))
     if date_from:
         query = query.where(Transaction.sale_date >= date_from)
     if date_to:
@@ -201,7 +201,7 @@ async def top_sellers(
         .limit(limit * 3)
     )
     if market_only:
-        query = query.where(market_sale_criteria(include_multi_parcel=True))
+        query = query.where(market_sale(include_multi_parcel=True))
     if date_from:
         query = query.where(Transaction.sale_date >= date_from)
     if date_to:
@@ -285,8 +285,7 @@ async def price_points(session, f: Filters, limit: int) -> tuple[int, list[Price
     base = sa.select(t.c.parcel_id, t.c.sale_date, t.c.sale_price, t.c.parcel_class)
     if needs_summary(f):
         base = base.outerjoin(ps, ps.c.parcel_id == t.c.parcel_id)
-    base = base.where(market_sale_criteria(), plausible_price_criteria(),
-                      single_parcel_criteria(), *sale_conditions(f, t, ps))
+    base = base.where(market_sale(), single_parcel_criteria(), *sale_conditions(f, t, ps))
     total = (await session.exec(
         sa.select(sa.func.count()).select_from(base.subquery())
     )).scalar_one()
@@ -343,7 +342,6 @@ def market_sale_rows(f: Filters, *, extra_columns: tuple = ()) -> Subquery:
         .select_from(t)
         .join(p, p.c.parcel_id == t.c.parcel_id)
         .outerjoin(ps, ps.c.parcel_id == t.c.parcel_id)
-        .where(market_sale_criteria(), plausible_price_criteria(), single_parcel_criteria(),
-               *sale_conditions(f, t, ps))
+        .where(market_sale(), single_parcel_criteria(), *sale_conditions(f, t, ps))
         .subquery()
     )

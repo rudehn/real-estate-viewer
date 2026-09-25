@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from api.filters import Filters, sale_conditions, summary_conditions
 from db.county_models import Neighborhood, ParcelSummary
-from db.criteria import market_sale_criteria, plausible_price_criteria, single_parcel_criteria
+from db.criteria import market_sale, single_parcel_criteria
 from db.models import FlipResult, Parcel, ParcelClass, Transaction
 from db.sqlutil import days_between
 
@@ -59,7 +59,7 @@ class FlipsPage(BaseModel):
 def _market_sale():
     """A market sale: arm's length, a real price, and a per-parcel price (not
     one row of a multi-parcel deal, flagged or not)."""
-    return sa.and_(market_sale_criteria(), plausible_price_criteria(), single_parcel_criteria())
+    return sa.and_(market_sale(), single_parcel_criteria())
 
 
 def _sales_select(f: Filters, market_only: bool):
@@ -186,7 +186,7 @@ async def find_flips(
             )
             .label("deal_size"),
         )
-        .where(market_sale_criteria(include_distress=True), plausible_price_criteria())
+        .where(market_sale(include_distress=True))
         .subquery()
     )
     t1 = sides.alias("t1")
@@ -226,7 +226,7 @@ async def find_flips(
     if date_to:
         query = query.where(t2.c.sale_date <= date_to)
     if classes:
-        query = query.where(t1.c.parcel_class.in_([c.value for c in classes]))
+        query = query.where(t1.c.parcel_class.in_(classes))
 
     result = await session.exec(query)
     return [dict(r) for r in result.mappings().all()]

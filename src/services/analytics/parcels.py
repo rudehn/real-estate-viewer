@@ -23,7 +23,7 @@ from db.county_models import (
     ParcelValue,
     TaxDistrict,
 )
-from db.criteria import market_sale_criteria
+from db.criteria import market_sale
 from db.models import Parcel, Transaction
 
 REAPPRAISAL_DATE = date(2026, 1, 1)
@@ -355,7 +355,7 @@ async def get_timeline(session, parcel_id: str) -> list[TimelineEvent]:
         sa.select(
             t.c.sale_date, t.c.sale_price, t.c.new_owner, t.c.old_owner, t.c.sale_validity,
             t.c.deed_reference,
-            sa.case((market_sale_criteria(include_multi_parcel=True), True), else_=False)
+            sa.case((market_sale(include_multi_parcel=True), True), else_=False)
             .label("is_market"),
         ).where(t.c.parcel_id == parcel_id)
     )).mappings().all()

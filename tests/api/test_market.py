@@ -1,4 +1,9 @@
+import datetime as dt
+
 import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from tests.api.conftest import sale
 
 
 async def get(api, path, **params):
@@ -24,6 +29,18 @@ async def test_summary_honors_filters(api):
     body = await get(api, "/v2/market/summary", neighborhood="15007000")
     assert body["applied_filters"] == ["neighborhood"]
     assert body["totals"]["transaction_count"] == 2  # N64: 2019 and 2025 market sales
+
+
+async def test_nominal_price_is_not_a_market_sale(api, county_db):
+    async with AsyncSession(county_db) as s:
+        nominal = sale("N64 00101 0003", dt.date(2025, 8, 1), 5_000, buyer="NOMINAL BUYER")
+        nominal.assessed_total = 148_000
+        s.add(nominal)
+        await s.commit()
+    body = await get(api, "/v2/market/summary", neighborhood="15007000")
+    assert body["totals"]["transaction_count"] == 2
+    body = await get(api, "/v2/market/top-buyers")
+    assert "NOMINAL BUYER" not in {r["owner_name"] for r in body["rows"]}
 
 
 async def test_trends_include_price_per_sqft(api):

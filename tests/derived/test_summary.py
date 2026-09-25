@@ -74,6 +74,18 @@ async def test_multi_parcel_deal_is_not_a_last_sale(loaded):
     assert rural.price_per_sqft is None
 
 
+async def test_nominal_price_is_not_a_last_sale(loaded):
+    """Above the $1,000 floor but under 10% of the county's value: nominal."""
+    async with AsyncSession(loaded) as s:
+        nominal = sale("N64 00101 0003", dt.date(2025, 8, 1), 5_000, buyer="NOMINAL BUYER")
+        nominal.assessed_total = 148_000
+        s.add(nominal)
+        await s.commit()
+    await rebuild_derived(engine=loaded)
+    ranch = await summary(loaded, "N64 00101 0003")
+    assert (ranch.last_sale_date, ranch.last_sale_price) == (dt.date(2025, 6, 1), 150_000)
+
+
 async def test_summary_sums_multiple_dwellings(loaded):
     await rebuild_derived(engine=loaded)
     two = await summary(loaded, "A01 00102 0069")

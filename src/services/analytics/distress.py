@@ -5,7 +5,7 @@ from datetime import date
 
 import sqlalchemy as sa
 
-from db.criteria import market_sale_criteria, plausible_price_criteria
+from db.criteria import market_sale
 from db.models import ParcelClass, Transaction
 from db.sqlutil import days_between
 
@@ -38,7 +38,7 @@ async def distressed_sales(
             Transaction.neighborhood,
             Transaction.parcel_class,
         )
-        .where(market_sale_criteria(include_distress=True), plausible_price_criteria())
+        .where(market_sale(include_distress=True))
         .where(Transaction.assessed_total >= min_assessed)
         .where(Transaction.sale_price / Transaction.assessed_total <= max_ratio)
         .order_by(ratio_expr)

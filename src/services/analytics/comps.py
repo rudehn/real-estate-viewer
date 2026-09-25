@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from api.errors import not_found
 from db.county_models import Dwelling, ParcelSummary
-from db.criteria import market_sale_criteria, single_parcel_criteria
+from db.criteria import market_sale, single_parcel_criteria
 from db.models import Parcel, Transaction
 from derived.summary import latest_sale_date
 
@@ -83,7 +83,7 @@ async def _candidates(session, subject: dict, since: date, where) -> list[dict]:
         .join(ps, ps.c.parcel_id == t.c.parcel_id)
         .join(dw, sa.and_(dw.c.parcel_id == t.c.parcel_id, _first_card_style(dw)))
         .where(
-            market_sale_criteria(), single_parcel_criteria(), t.c.sale_date >= since,
+            market_sale(), single_parcel_criteria(), t.c.sale_date >= since,
             t.c.parcel_id != subject["parcel_id"],
             ps.c.living_sqft.between(sqft * 0.8, sqft * 1.2),
             where,

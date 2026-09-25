@@ -22,7 +22,7 @@ from db.county_models import (
     ParcelTax,
     ParcelValue,
 )
-from db.criteria import market_sale_criteria
+from db.criteria import market_sale, market_sale_criteria
 from db.models import Parcel, Transaction
 from ingest.bulk import insert_rows
 from logging_config import get_logger
@@ -40,7 +40,7 @@ def _last_market_sales():
                 partition_by=[t.c.sale_date, t.c.new_owner, t.c.sale_price]
             ).label("deal_size"),
         )
-        .where(market_sale_criteria())
+        .where(market_sale())
         .subquery()
     )
     ranked = (
