@@ -59,9 +59,22 @@ def test_buffers_are_four_byte_aligned():
     assert all(c["offset"] % 4 == 0 for c in decoded["header"]["columns"])
 
 
-def test_write_keeps_only_the_latest(tmp_path, monkeypatch):
+def test_write_keeps_the_latest_and_the_previous(tmp_path, monkeypatch):
+    """The previous file stays so a request already streaming it never fails."""
     monkeypatch.setattr(mb, "DERIVED_DIR", tmp_path)
     mb.write_map_binary(b"one", 1)
     mb.write_map_binary(b"two", 2)
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["parcels-v2.bin"]
-    assert mb.latest_map_binary() == (2, tmp_path / "parcels-v2.bin")
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["parcels-v1.bin", "parcels-v2.bin"]
+    mb.write_map_binary(b"three", 3)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["parcels-v2.bin", "parcels-v3.bin"]
+    assert mb.latest_map_binary() == (3, tmp_path / "parcels-v3.bin")
+    assert (tmp_path / "parcels-v2.bin").read_bytes() == b"two"
+
+
+def test_write_drops_files_numbered_above_it(tmp_path, monkeypatch):
+    """A replaced database restarts at a lower version; its file must win."""
+    monkeypatch.setattr(mb, "DERIVED_DIR", tmp_path)
+    mb.write_map_binary(b"old db", 7)
+    mb.write_map_binary(b"new db", 1)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["parcels-v1.bin"]
+    assert mb.latest_map_binary() == (1, tmp_path / "parcels-v1.bin")

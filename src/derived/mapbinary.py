@@ -140,22 +140,34 @@ def map_binary_path(version: int) -> Path:
     return DERIVED_DIR / f"parcels-v{version}.bin"
 
 
+def _versions() -> list[tuple[int, Path]]:
+    return sorted(
+        (int(m.group(1)), p)
+        for p in DERIVED_DIR.glob("parcels-v*.bin")
+        if (m := _NAME.search(p.name))
+    )
+
+
 def write_map_binary(data: bytes, version: int) -> Path:
+    """Write the new version, keeping the one before it.
+
+    A request that resolved the previous path just before this write may still
+    be opening or streaming it, so only older files are deleted. Files numbered
+    above this version (left by a database that was replaced) go too, or they
+    would shadow it.
+    """
     DERIVED_DIR.mkdir(parents=True, exist_ok=True)
     target = map_binary_path(version)
     partial = target.with_suffix(".part")
     partial.write_bytes(data)
     partial.replace(target)
-    for old in DERIVED_DIR.glob("parcels-v*.bin"):
-        if old != target:
-            old.unlink(missing_ok=True)
+    older = [p for v, p in _versions() if v < version]
+    newer = [p for v, p in _versions() if v > version]
+    for stale in older[:-1] + newer:
+        stale.unlink(missing_ok=True)
     return target
 
 
 def latest_map_binary() -> tuple[int, Path] | None:
-    found = [
-        (int(m.group(1)), p)
-        for p in DERIVED_DIR.glob("parcels-v*.bin")
-        if (m := _NAME.search(p.name))
-    ]
-    return max(found) if found else None
+    found = _versions()
+    return found[-1] if found else None
