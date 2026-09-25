@@ -294,6 +294,7 @@ class MarketStatsBucket(BaseModel):
     median_price: float
     avg_price: float
     total_volume: float
+    median_price_per_sqft: float | None = None
 
 
 class OwnerParcel(BaseModel):

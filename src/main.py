@@ -14,7 +14,7 @@ from fastapi_filter.contrib.sqlalchemy import Filter
 
 # from fastapi_filters import create_filters, create_filters_from_model, FilterValues
 # from fastapi_filters.ext.sqlalchemy import apply_filters
-from sqlalchemy import Integer, case, cast, extract, func, literal, or_
+from sqlalchemy import Integer, case, cast, extract, func, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import and_, desc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -51,6 +51,7 @@ from db.models import (
 )
 from db.sqlutil import date_add_days, days_between
 from logging_config import configure_logging, get_logger
+from services.analytics.market import market_buckets, top_buyers, top_sellers
 from services.analytics.sales import find_flips
 from services.owner_names import merge_owner_rows
 
@@ -229,101 +230,8 @@ async def get_market_stats(
     Median comes from a row_number/count window pair so it works on both
     SQLite and Postgres (no percentile_cont on SQLite).
     """
-    # Portfolio deals are recorded with the full deal price on every parcel
-    # row, and the county doesn't always flag them (a $41M, 60-parcel deal is
-    # marked plain VALID SALE). Detect them structurally: identical
-    # (date, buyer, price) across rows is one conveyance, not N sales.
-    deal_rows = select(
-        Transaction.sale_date,
-        Transaction.sale_price,
-        func.count()
-        .over(
-            partition_by=[
-                Transaction.sale_date,
-                Transaction.new_owner,
-                Transaction.sale_price,
-            ]
-        )
-        .label("deal_size"),
-    )
-    if market_only:
-        deal_rows = deal_rows.where(market_sale_criteria())
-    else:
-        deal_rows = deal_rows.where(Transaction.sale_price > 0)
-    deal_rows = filters.filter(deal_rows).subquery()
-
-    if granularity == "all":
-        year_col = literal(0).label("y")
-    else:
-        year_col = cast(extract("year", deal_rows.c.sale_date), Integer).label("y")
-    month_col = cast(extract("month", deal_rows.c.sale_date), Integer)
-    if granularity == "month":
-        sub_col = month_col
-    elif granularity == "quarter":
-        sub_col = case(
-            (month_col <= 3, 1), (month_col <= 6, 2), (month_col <= 9, 3), else_=4
-        )
-    else:
-        sub_col = literal(1)
-    sub_col = sub_col.label("b")
-
-    base = (
-        select(
-            year_col,
-            sub_col,
-            deal_rows.c.sale_price.label("price"),
-            func.row_number()
-            .over(partition_by=[year_col, sub_col], order_by=deal_rows.c.sale_price)
-            .label("rn"),
-            func.count().over(partition_by=[year_col, sub_col]).label("cnt"),
-        )
-        .where(deal_rows.c.deal_size == 1)
-        .subquery()
-    )
-
-    # The middle row(s) by price within each bucket; avg() of the one or two
-    # selected rows is the median. `//` compiles to plain integer division on
-    # both dialects, where `/` would emit a float-casting true division.
-    is_median_row = or_(
-        base.c.rn == (base.c.cnt + 1) // 2,
-        base.c.rn == (base.c.cnt + 2) // 2,
-    )
-    query = (
-        select(
-            base.c.y,
-            base.c.b,
-            func.count().label("transaction_count"),
-            func.avg(case((is_median_row, base.c.price))).label("median_price"),
-            func.avg(base.c.price).label("avg_price"),
-            func.sum(base.c.price).label("total_volume"),
-        )
-        .group_by(base.c.y, base.c.b)
-        .order_by(base.c.y, base.c.b)
-    )
-    rows = (await session.exec(query)).mappings().all()
-
-    buckets = []
-    for row in rows:
-        y, b = row["y"], row["b"]
-        if granularity == "all":
-            period, start = "all", date(1970, 1, 1)
-        elif granularity == "month":
-            period, start = f"{y}-{b:02d}", date(y, b, 1)
-        elif granularity == "quarter":
-            period, start = f"{y}-Q{b}", date(y, 3 * (b - 1) + 1, 1)
-        else:
-            period, start = str(y), date(y, 1, 1)
-        buckets.append(
-            MarketStatsBucket(
-                period=period,
-                period_start=start,
-                transaction_count=row["transaction_count"],
-                median_price=row["median_price"] or 0.0,
-                avg_price=row["avg_price"] or 0.0,
-                total_volume=row["total_volume"] or 0.0,
-            )
-        )
-    return buckets
+    return await market_buckets(session, granularity=granularity, market_only=market_only,
+                                apply=filters.filter)
 
 
 @app.get("/analytics/top-buyers", response_model=list[OwnerStats])
@@ -337,28 +245,7 @@ async def get_top_buyers(
     Finds entities who have purchased the most properties or spent the most money.
     Useful for finding investors or 'Whales'.
     """
-    query = (
-        select(
-            Transaction.new_owner.label("owner_name"),
-            func.count(Transaction.id).label("transaction_count"),
-            func.sum(Transaction.sale_price).label("total_spent"),
-            func.avg(Transaction.sale_price).label("avg_price")
-        )
-        .where(Transaction.sale_price >= min_spent)
-        .group_by(Transaction.new_owner)
-        .order_by(desc("transaction_count")) # Sort by volume
-        # .order_by(desc("total_spent"))       # OR Sort by money spent
-        # Over-fetch: rows are re-merged by normalized owner name below.
-        .limit(limit * 3)
-    )
-    if market_only:
-        query = query.where(market_sale_criteria(include_multi_parcel=True))
-
-    rows = (await session.exec(query)).mappings().all()
-    merged = merge_owner_rows(rows, sum_fields=("transaction_count", "total_spent"), limit=limit)
-    for r in merged:
-        r["avg_price"] = r["total_spent"] / r["transaction_count"] if r["transaction_count"] else 0
-    return merged
+    return await top_buyers(session, limit=limit, min_spent=min_spent, market_only=market_only)
 
 @app.get("/analytics/top-sellers", response_model=list[OwnerStats])
 async def get_top_sellers(
@@ -367,25 +254,7 @@ async def get_top_sellers(
     session: AsyncSession = Depends(get_session),
 ):
     """Finds entities who are selling off large portfolios."""
-    query = (
-        select(
-            Transaction.old_owner.label("owner_name"),
-            func.count(Transaction.id).label("transaction_count"),
-            func.sum(Transaction.sale_price).label("total_spent"),
-            func.avg(Transaction.sale_price).label("avg_price")
-        )
-        .group_by(Transaction.old_owner)
-        .order_by(desc("transaction_count"))
-        # Over-fetch: rows are re-merged by normalized owner name below.
-        .limit(limit * 3)
-    )
-    if market_only:
-        query = query.where(market_sale_criteria(include_multi_parcel=True))
-    rows = (await session.exec(query)).mappings().all()
-    merged = merge_owner_rows(rows, sum_fields=("transaction_count", "total_spent"), limit=limit)
-    for r in merged:
-        r["avg_price"] = r["total_spent"] / r["transaction_count"] if r["transaction_count"] else 0
-    return merged
+    return await top_sellers(session, limit=limit, market_only=market_only)
 
 @app.get("/analytics/neighborhoods", response_model=list[NeighborhoodStats])
 async def get_neighborhood_stats(
