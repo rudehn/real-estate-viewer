@@ -1,4 +1,5 @@
 import datetime as dt
+from urllib.parse import quote
 
 import sqlalchemy as sa
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -38,6 +39,16 @@ async def test_past_owner_without_holdings_still_resolves(api):
     body = await get(api, "/v2/owners/FUND LLC")
     assert body["holdings"] == []
     assert body["profile"]["total_buys"] == 2
+
+
+async def test_owner_name_with_a_slash_resolves(api, county_db):
+    name = "A&A/DAYTON PROPERTY LLC"
+    async with AsyncSession(county_db) as s:
+        s.add(sale("A01 00101 0001", dt.date(2025, 8, 1), 500_000, buyer=name))
+        await s.commit()
+    body = await get(api, "/v2/owners/" + quote(name, safe=""))
+    assert body["owner_name"] == name
+    assert body["profile"]["total_buys"] == 1
 
 
 async def test_unknown_owner_is_404(api):

@@ -34,6 +34,8 @@ async def top(f: Filters = Depends(get_filters),
     return OwnerList(applied_filters=honored(f, PARCEL_FILTERS), rows=rows)
 
 
-@router.get("/{name}", response_model=OwnerDetail)
+# ":path" because county owner names can contain "/" ("A&A/DAYTON PROPERTY LLC").
+# Declared after /top so that literal route still wins.
+@router.get("/{name:path}", response_model=OwnerDetail)
 async def detail(name: str, session: AsyncSession = Depends(get_session)):
     return await owner_detail(session, name)
