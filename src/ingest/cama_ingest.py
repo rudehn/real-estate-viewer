@@ -7,6 +7,8 @@ Runs in the background population loop. Parsing happens in worker threads
 from __future__ import annotations
 
 import asyncio
+import json
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -16,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from county import cama
 from county.coords import state_plane_to_wgs84
-from db.county_models import ParcelDetail
+from db.county_models import Dwelling, ParcelDetail, ParcelFeature
 from db.models import Parcel, ParcelClass
 from ingest.bulk import in_thread_chunks, upsert
 from logging_config import get_logger
@@ -189,6 +191,112 @@ async def load_parcel_details(conn: AsyncConnection, ctx: CamaContext) -> int:
     return written
 
 
+ATTACHED_GARAGE_CODES = {"13", "23"}
+# 1919 means "built before 1920" (4,096 dwellings vs ~500 for neighboring
+# years); 1900 is similarly inflated. Shown as approximate in the UI.
+PLACEHOLDER_YEARS = {1900, 1919}
+_ADDN_CODE_FIELDS = ("lower", "first", "second", "third")
+
+
+def sketch_lines(addn_rows: list[dict]) -> list[dict]:
+    return [
+        {
+            "line": row["lline"],
+            "codes": [row[f] for f in _ADDN_CODE_FIELDS if row[f]],
+            "area": row["area"],
+            "vector": row["vect"],
+        }
+        for row in sorted(addn_rows, key=lambda r: r["lline"])
+    ]
+
+
+def _addn_by_card(zip_path: Path) -> dict[tuple[str, int], list[dict]]:
+    """ADDN lines grouped per dwelling card, keeping only the fields we use."""
+    grouped: dict[tuple[str, int], list[dict]] = defaultdict(list)
+    for row in _checked_rows(zip_path, "ADDN"):
+        grouped[(row["parid"], row["card"])].append(
+            {k: row[k] for k in ("lline", "area", "vect", *_ADDN_CODE_FIELDS)}
+        )
+    return grouped
+
+
+def _dwelling_row(row: dict, addn: list[dict], ctx: CamaContext) -> dict:
+    label = ctx.decodes.label
+    garage = sum(
+        line["area"] or 0
+        for line in addn
+        if ATTACHED_GARAGE_CODES & {line[f] for f in _ADDN_CODE_FIELDS}
+    )
+    return {
+        "parcel_id": row["parid"],
+        "card": row["card"],
+        "living_sqft": row["sfla"],
+        "first_floor_sqft": row["flr1area"],
+        "finished_basement_sqft": row["finbsmtarea"] or None,
+        "beds": row["rmbed"],
+        "full_baths": row["fixbath"],
+        "half_baths": row["fixhalf"],
+        "stories": row["stories"],
+        "style_code": row["style"],
+        "style": label("DWELDAT", "STYLE", row["style"]),
+        "year_built": row["yrblt"] or None,
+        "year_built_is_placeholder": row["yrblt"] in PLACEHOLDER_YEARS,
+        "grade": row["grade"],
+        "grade_label": ctx.decodes.grade(row["grade"]),
+        "condition": label("DWELDAT", "CDU", row["cdu"]),
+        "exterior": label("DWELDAT", "EXTWALL", row["extwall"]),
+        "basement": label("DWELDAT", "BSMT", row["bsmt"]),
+        "heating": ctx.decodes.heat(row["heat"]),
+        "fuel": label("DWELDAT", "FUEL", row["fuel"]),
+        "has_central_air": row["heat"] == "4",
+        "fireplaces": (row["wbfp_o"] or 0) + (row["wbfp_s"] or 0) + (row["wbfp_pf"] or 0),
+        "attached_garage_sqft": garage,
+        "basement_garage_cars": row["bsmtcar"] or 0,
+        "sketch": json.dumps(sketch_lines(addn)) if addn else None,
+        "snapshot_date": ctx.snapshot,
+    }
+
+
+async def load_dwellings(conn: AsyncConnection, ctx: CamaContext) -> int:
+    addn = await asyncio.to_thread(_addn_by_card, ctx.zip_path)
+    await conn.execute(sa.delete(Dwelling.__table__))
+    written = 0
+    rows = (
+        _dwelling_row(r, addn.get((r["parid"], r["card"]), []), ctx)
+        for r in _checked_rows(ctx.zip_path, "DWELL")
+    )
+    async for chunk in in_thread_chunks(rows):
+        await conn.execute(sa.insert(Dwelling.__table__), chunk)
+        written += len(chunk)
+    return written
+
+
+def _feature_row(row: dict, ctx: CamaContext) -> dict:
+    return {
+        "parcel_id": row["parid"],
+        "card": row["card"],
+        "line": row["lline"],
+        "code": row["code"],
+        "description": ctx.decodes.outbuilding(row["code"]),
+        "year_built": row["yrblt"] or None,
+        "area_sqft": row["area"],
+        "width_ft": row["meas1"],
+        "length_ft": row["meas2"],
+        "condition": ctx.decodes.label("OBY", "COND", row["cond"]),
+        "snapshot_date": ctx.snapshot,
+    }
+
+
+async def load_features(conn: AsyncConnection, ctx: CamaContext) -> int:
+    await conn.execute(sa.delete(ParcelFeature.__table__))
+    written = 0
+    rows = (_feature_row(r, ctx) for r in _checked_rows(ctx.zip_path, "OBY") if r["code"])
+    async for chunk in in_thread_chunks(rows):
+        await conn.execute(sa.insert(ParcelFeature.__table__), chunk)
+        written += len(chunk)
+    return written
+
+
 async def ingest_cama(zip_path: Path, engine: AsyncEngine | None = None) -> dict[str, int]:
     if engine is None:
         from db.engine import engine as default_engine
@@ -199,5 +307,7 @@ async def ingest_cama(zip_path: Path, engine: AsyncEngine | None = None) -> dict
     async with engine.begin() as conn:
         counts["parcel"] = await load_parcels(conn, ctx)
         counts["parcel_detail"] = await load_parcel_details(conn, ctx)
+        counts["dwelling"] = await load_dwellings(conn, ctx)
+        counts["parcel_feature"] = await load_features(conn, ctx)
     logger.info("CAMA %s ingested: %s", ctx.snapshot, counts)
     return counts
