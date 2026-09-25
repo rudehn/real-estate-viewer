@@ -43,6 +43,13 @@ The county publishes each sale several times: in weekly ZIPs shortly after it is
 The yearly export is authoritative (corrected buyer names, validity codes, and the neighborhood and deed columns that weekly files lack), so yearly rows overwrite stored ones, while weekly rows only fill in sales newer than the last yearly export.
 See the top of `src/db/ingestors.py` for the exact rules.
 
+### Resource needs
+
+The population loop runs inside the API process, so size the container for its peak.
+A population run over the full county (the August 2026 CAMA export, the September 2026 tax roll and the derived rebuild, on SQLite) peaked at about 600 MB resident memory.
+The CAMA step peaks at about 420 MB and the derived rebuild at about 590 MB.
+Give the backend at least 1 GB of memory.
+
 ## API
 
 The frontend uses the versioned `/v2` API.
