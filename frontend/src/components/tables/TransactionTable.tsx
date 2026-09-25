@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { OwnerLink } from "@/components/OwnerLink";
 import { formatCurrencyFull, formatDate } from "@/lib/utils/formatters";
-import { neighborhoodName } from "@/lib/utils/neighborhoods";
+import { neighborhoodName, neighborhoodShortName } from "@/lib/utils/neighborhoods";
 import type { TransactionResponse } from "@/lib/types/api";
 import Link from "next/link";
 
@@ -146,7 +146,11 @@ export function TransactionTable({ data, totalCount }: Props) {
                   <span>{formatDate(t.sale_date)}</span>
                   <span>{t.parcel_class}</span>
                   {t.acres > 0 && <span>{t.acres.toFixed(2)} ac</span>}
-                  {t.neighborhood && <span className="truncate">{neighborhoodName(t.neighborhood)}</span>}
+                  {t.neighborhood && (
+                    <span className="truncate" title={neighborhoodName(t.neighborhood)}>
+                      {neighborhoodShortName(t.neighborhood)}
+                    </span>
+                  )}
                 </div>
                 <div className="mt-1 truncate text-xs">
                   <OwnerLink name={t.new_owner} />

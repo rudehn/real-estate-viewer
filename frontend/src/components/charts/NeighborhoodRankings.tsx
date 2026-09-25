@@ -7,8 +7,9 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useIsPhone } from "@/lib/hooks/useMediaQuery";
+import { SingleLineTick } from "./SingleLineTick";
 import { formatCurrency } from "@/lib/utils/formatters";
-import { neighborhoodLabel, neighborhoodName } from "@/lib/utils/neighborhoods";
+import { neighborhoodName, neighborhoodShortName } from "@/lib/utils/neighborhoods";
 import type { NeighborhoodStats } from "@/lib/types/api";
 
 type SortKey = "transaction_count" | "median_price" | "total_volume";
@@ -30,7 +31,7 @@ export function NeighborhoodRankings({ data }: Props) {
   const sorted = [...data]
     .sort((a, b) => b[sortBy] - a[sortBy])
     .slice(0, 20)
-    .map((d) => ({ ...d, label: neighborhoodLabel(d.neighborhood, isPhone ? 18 : 26) }));
+    .map((d) => ({ ...d, label: neighborhoodShortName(d.neighborhood) }));
   const formatY = (v: number) => (sortBy === "transaction_count" ? `${v}` : formatCurrency(v));
 
   return (
@@ -63,7 +64,7 @@ export function NeighborhoodRankings({ data }: Props) {
           <BarChart data={sorted} layout="vertical" margin={{ left: 12, right: 20, top: 4, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
             <XAxis type="number" tickFormatter={formatY} tick={{ fontSize: 10 }} />
-            <YAxis type="category" dataKey="label" tick={{ fontSize: 10 }} width={isPhone ? 112 : 150} interval={0} />
+            <YAxis type="category" dataKey="label" tick={<SingleLineTick />} width={isPhone ? 132 : 200} interval={0} />
             <Tooltip
               formatter={(v: number) => [formatY(v), SORT_OPTIONS.find((o) => o.value === sortBy)?.label]}
               labelFormatter={(_, payload) =>
