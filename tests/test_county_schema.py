@@ -1,7 +1,9 @@
 import datetime as dt
+import os
 
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import SQLModel
 
 from db.county_models import Dwelling, ParcelSummary
 from db.maintenance import repair_schema
@@ -43,8 +45,18 @@ async def test_summary_defaults(session):
 
 
 async def test_repair_adds_new_parcel_columns_to_an_old_database(tmp_path):
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/old.db")
+    url = os.getenv("TEST_DATABASE_URL") or f"sqlite+aiosqlite:///{tmp_path}/old.db"
+    engine = create_async_engine(url)
     async with engine.begin() as conn:
+        # A shared Postgres test database may still hold tables from other
+        # tests; start clean so the old-shape parcel table below has no
+        # leftover columns or dependents.
+        await conn.run_sync(SQLModel.metadata.drop_all)
+        drop_parcel = (
+            "DROP TABLE IF EXISTS parcel CASCADE" if conn.dialect.name == "postgresql"
+            else "DROP TABLE IF EXISTS parcel"
+        )
+        await conn.execute(text(drop_parcel))
         await conn.execute(text(
             "CREATE TABLE parcel (parcel_id VARCHAR PRIMARY KEY, parcel_location VARCHAR NOT NULL,"
             " parcel_class VARCHAR(1) NOT NULL, acres FLOAT NOT NULL, latitude FLOAT,"
@@ -59,6 +71,7 @@ async def test_repair_adds_new_parcel_columns_to_an_old_database(tmp_path):
             lambda c: {col["name"] for col in inspect(c).get_columns("parcel")}
         )
         active = (await conn.execute(text("SELECT is_active FROM parcel"))).scalar_one()
+        await conn.execute(text(drop_parcel))
     await engine.dispose()
     assert {"neighborhood", "tax_district", "land_use_code", "zip", "census_tract",
             "is_active", "coord_source"} <= columns
