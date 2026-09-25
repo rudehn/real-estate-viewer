@@ -21,6 +21,18 @@ CSV_COLUMNS = ("sale_date", "sale_price", "address", "buyer", "seller", "parcel_
                "year_built", "beds", "baths", "is_market_sale", "validity", "parcel_id")
 
 
+# A spreadsheet runs a cell starting with one of these as a formula.
+_FORMULA_PREFIXES = ("=", "+", "-", "@")
+
+
+def _csv_cell(value):
+    if value is None:
+        return ""
+    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
+
 class SaleRow(BaseModel):
     id: int
     parcel_id: str
@@ -147,7 +159,7 @@ async def stream_sales_csv(session, f: Filters, *, sort: str, order: str,
         buffer.truncate()
         for mapping in partition:
             row = _row(mapping)
-            writer.writerow(["" if row[c] is None else row[c] for c in CSV_COLUMNS])
+            writer.writerow([_csv_cell(row[c]) for c in CSV_COLUMNS])
         yield buffer.getvalue()
 
 

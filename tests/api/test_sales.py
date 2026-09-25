@@ -1,5 +1,10 @@
 import csv
+import datetime as dt
 import io
+
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from tests.api.conftest import sale
 
 
 async def get(api, path, **params):
@@ -60,6 +65,19 @@ async def test_csv_export(api):
     assert len(rows) == 6
     assert set(rows[0]) >= {"sale_date", "sale_price", "address", "buyer", "seller",
                             "price_per_sqft"}
+
+
+async def test_csv_neutralizes_formulas(api, county_db):
+    """A cell a spreadsheet would run as a formula is prefixed with a quote."""
+    async with AsyncSession(county_db) as s:
+        s.add(sale("A01 00101 0001", dt.date(2025, 8, 1), 500_000,
+                   buyer='=HYPERLINK("http://x","y")', seller="@SUM(A1)"))
+        await s.commit()
+    r = await api.get("/v2/sales.csv", params={"date_from": "2025-08-01",
+                                                "date_to": "2025-08-01"})
+    (row,) = list(csv.DictReader(io.StringIO(r.text)))
+    assert (row["buyer"], row["seller"]) == ("'=HYPERLINK(\"http://x\",\"y\")", "'@SUM(A1)")
+    assert row["sale_price"] == "500000.0"
 
 
 async def test_flips_exclude_multi_parcel_deals(api):
