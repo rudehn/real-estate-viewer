@@ -6,17 +6,18 @@ and Postgres (no percentile_cont on SQLite).
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Literal
 
 import sqlalchemy as sa
 from pydantic import BaseModel
-from sqlalchemy import Select
+from sqlalchemy import Select, Subquery
 
 from api.filters import Filters, needs_summary, sale_conditions
 from db.county_models import ParcelSummary
 from db.criteria import market_sale_criteria, plausible_price_criteria, single_parcel_criteria
-from db.models import MarketStatsBucket, OwnerStats, Transaction
+from db.models import MarketStatsBucket, OwnerStats, Parcel, Transaction
 from derived.summary import latest_sale_date
 from services.owner_names import merge_owner_rows
 
@@ -293,3 +294,56 @@ async def price_points(session, f: Filters, limit: int) -> tuple[int, list[Price
     points = [PricePoint(parcel_id=r.parcel_id, sale_date=r.sale_date, sale_price=r.sale_price,
                          parcel_class=r.parcel_class.name) for r in rows]
     return total, sorted(points, key=lambda p: p.sale_date)
+
+
+@dataclass
+class GroupStats:
+    count: int
+    median: float | None
+    total: float | None
+
+
+async def medians_by_group(
+    session, rows: Subquery, groups: list[str], value: str
+) -> dict[tuple, GroupStats]:
+    """Count, median and sum of ``value`` per group, portable to SQLite and Postgres.
+
+    NULL values sort last and are not counted, so the middle row numbers land
+    on real values.
+    """
+    keys = [rows.c[g] for g in groups]
+    v = rows.c[value]
+    ranked = sa.select(
+        *[k.label(f"g{i}") for i, k in enumerate(keys)], v.label("v"),
+        sa.func.row_number().over(partition_by=keys, order_by=sa.nulls_last(v.asc())).label("rn"),
+        sa.func.count(v).over(partition_by=keys).label("cnt"),
+    ).subquery()
+    group_cols = [ranked.c[f"g{i}"] for i in range(len(keys))]
+    middle = sa.or_(ranked.c.rn == (ranked.c.cnt + 1) // 2, ranked.c.rn == (ranked.c.cnt + 2) // 2)
+    query = sa.select(
+        *group_cols, sa.func.count(ranked.c.v), sa.func.avg(sa.case((middle, ranked.c.v))),
+        sa.func.sum(ranked.c.v),
+    ).group_by(*group_cols)
+    out = {}
+    for row in (await session.exec(query)).all():
+        *key, count, median, total = row
+        out[tuple(key)] = GroupStats(count=count, median=median, total=total)
+    return out
+
+
+def market_sale_rows(f: Filters, *, extra_columns: tuple = ()) -> Subquery:
+    t, ps, p = Transaction.__table__, ParcelSummary.__table__, Parcel.__table__
+    ppsf = sa.case((ps.c.living_sqft > 0, t.c.sale_price * 1.0 / ps.c.living_sqft))
+    return (
+        sa.select(
+            t.c.parcel_id, p.c.neighborhood,
+            sa.cast(sa.extract("year", t.c.sale_date), sa.Integer).label("year"),
+            t.c.sale_price, ppsf.label("ppsf"), *extra_columns,
+        )
+        .select_from(t)
+        .join(p, p.c.parcel_id == t.c.parcel_id)
+        .outerjoin(ps, ps.c.parcel_id == t.c.parcel_id)
+        .where(market_sale_criteria(), plausible_price_criteria(), single_parcel_criteria(),
+               *sale_conditions(f, t, ps))
+        .subquery()
+    )
