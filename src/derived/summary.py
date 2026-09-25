@@ -227,4 +227,11 @@ async def rebuild_derived(engine: AsyncEngine | None = None) -> int:
         neighborhoods = await build_neighborhood_summary(conn, anchor)
         version = await bump_data_version(conn)
     logger.info("Derived data v%d: %d parcels, %d neighborhoods", version, parcels, neighborhoods)
+
+    from derived.mapbinary import build_map_binary, write_map_binary
+
+    async with engine.connect() as conn:
+        data = await build_map_binary(conn, version)
+    path = write_map_binary(data, version)
+    logger.info("Wrote map binary %s (%d KB)", path, len(data) // 1024)
     return version

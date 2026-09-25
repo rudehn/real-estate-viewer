@@ -13,6 +13,13 @@ from ingest.taxroll_ingest import ingest_taxroll
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "county"
 
 
+@pytest.fixture(autouse=True)
+def derived_dir(tmp_path, monkeypatch):
+    import derived.mapbinary as mb
+
+    monkeypatch.setattr(mb, "DERIVED_DIR", tmp_path / "derived")
+
+
 def sale(parcel_id, day, price, buyer="BUYER A", seller="SELLER B", validity="VALID SALE"):
     return Transaction(
         parcel_id=parcel_id, sale_date=day, sale_price=price, old_owner=seller, new_owner=buyer,
@@ -123,3 +130,16 @@ async def test_data_version_increments(loaded):
         assert await current_data_version(conn) == 0
     assert await rebuild_derived(engine=loaded) == 1
     assert await rebuild_derived(engine=loaded) == 2
+
+
+async def test_rebuild_writes_map_binary(loaded, tmp_path):
+    import derived.mapbinary as mb
+
+    version = await rebuild_derived(engine=loaded)
+    latest_version, path = mb.latest_map_binary()
+    decoded = mb.decode_map_binary(path.read_bytes())
+    assert latest_version == version
+    # Active parcels with coordinates only: the four CAMA parcels.
+    assert decoded["ids"] == [
+        "A01 00101 0001", "A01 00102 0069", "N64 00101 0003", "R72 00304 0025"
+    ]
