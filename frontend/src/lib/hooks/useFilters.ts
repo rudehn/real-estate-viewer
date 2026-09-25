@@ -53,5 +53,24 @@ export function useFilters() {
     });
   }
 
-  return { filters: apiFilters, rawFilters: filters, setFilters, resetFilters, PARCEL_CLASSES };
+  // Filter groups the user has changed from their defaults (shown on the
+  // mobile Filters button).
+  const today = new Date().toISOString().slice(0, 10);
+  const classes = [...filters.parcel_class__in].sort().join(",");
+  const activeCount = [
+    filters.sale_date__gte !== "2010-01-01" || filters.sale_date__lte !== today,
+    filters.sale_price__gte !== 10_000 || filters.sale_price__lte < 2_000_000,
+    filters.acres__gte !== 0 || filters.acres__lte < 100,
+    classes !== "Residential",
+    Boolean(filters.new_owner__ilike),
+  ].filter(Boolean).length;
+
+  return {
+    filters: apiFilters,
+    rawFilters: filters,
+    setFilters,
+    resetFilters,
+    activeCount,
+    PARCEL_CLASSES,
+  };
 }

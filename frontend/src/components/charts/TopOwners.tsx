@@ -7,6 +7,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/utils/formatters";
+import { useIsPhone } from "@/lib/hooks/useMediaQuery";
 import type { OwnerHoldings } from "@/lib/types/api";
 
 type SortKey = "parcel_count" | "total_acres" | "total_assessed_value";
@@ -23,12 +24,14 @@ interface Props {
 
 export function TopOwners({ data }: Props) {
   const [sortBy, setSortBy] = useState<SortKey>("parcel_count");
+  const isPhone = useIsPhone();
+  const maxLen = isPhone ? 16 : 24;
 
   const chartData = [...data]
     .sort((a, b) => b[sortBy] - a[sortBy])
     .slice(0, 15)
     .map((d) => ({
-      name: d.owner_name.length > 24 ? d.owner_name.slice(0, 24) + "…" : d.owner_name,
+      name: d.owner_name.length > maxLen ? d.owner_name.slice(0, maxLen) + "…" : d.owner_name,
       value: d[sortBy],
       raw: d,
     }));
@@ -68,7 +71,7 @@ export function TopOwners({ data }: Props) {
           <BarChart data={chartData} layout="vertical" margin={{ left: 4, right: 24, top: 4, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
             <XAxis type="number" tickFormatter={formatValue} tick={{ fontSize: 10 }} />
-            <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={160} interval={0} />
+            <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={isPhone ? 112 : 160} interval={0} />
             <Tooltip
               formatter={(v: number) => [formatValue(v), SORT_OPTIONS.find(o => o.value === sortBy)?.label]}
               labelStyle={{ fontSize: 12 }}
