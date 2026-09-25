@@ -107,3 +107,20 @@ def test_missing_bill_component_column_is_rejected(tmp_path):
     with pytest.raises(TooManyBadRows) as exc_info:
         list(reader.rows(path))
     assert "HLF1ADJ" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("column", ["OWNOCC", "HMSDFLAG", "RENTALREG", "AETASMTTOTAL"])
+def test_missing_occupancy_or_abatement_column_is_rejected(tmp_path, column):
+    """A renamed flag column must fail loudly, not classify every parcel as 'no'."""
+    from county.fixedwidth import TooManyBadRows
+
+    with zipfile.ZipFile(FIXTURE) as zf:
+        (entry,) = zf.namelist()
+        lines = zf.read(entry).split(b"\r\n")
+    header = lines[0].replace(f'"{column}'.encode(), f'"{column}X'.encode())
+    assert header != lines[0]
+    path = tmp_path / "TAXROLL_20260923.zip"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr(entry, header + b"\r\n" + b"\r\n".join(lines[1:]))
+    with pytest.raises(TooManyBadRows, match=column):
+        list(TaxRollReader().rows(path))

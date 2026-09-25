@@ -49,6 +49,12 @@ REQUIRED_COLUMNS = {
     "YRBL",
     "SALESDTE",
     "PRICE",
+    # Occupancy and abatement flags: read as "Y" or not, so a renamed column
+    # would silently turn every parcel's flag off. Required, so it fails loudly.
+    "OWNOCC",
+    "HMSDFLAG",
+    "RENTALREG",
+    "AETASMTTOTAL",
     *(f"HLF{h}{c}" for h in (1, 2) for c in BILL_COMPONENTS),
 }
 
@@ -143,12 +149,12 @@ class TaxRollReader:
             "annual_bill": annual_bill(raw),
             "gross_rate": _number(raw["GROSSRATE"]),
             "effective_rate": _number(raw["EFFRATE"]),
-            "owner_occupied": _flag(raw.get("OWNOCC")),
-            "homestead": _flag(raw.get("HMSDFLAG")),
-            "rental_registered": _flag(raw.get("RENTALREG")),
+            "owner_occupied": _flag(raw["OWNOCC"]),
+            "homestead": _flag(raw["HMSDFLAG"]),
+            "rental_registered": _flag(raw["RENTALREG"]),
             "foreclosure_date": parse_date(raw["FRCLSR"]),
             "cauv": (_number(raw["AGLAND"]) or 0) > 0,
-            "abated": (_number(raw.get("AETASMTTOTAL")) or 0) > 0,
+            "abated": (_number(raw["AETASMTTOTAL"]) or 0) > 0,
             "net_delinquent": _number(raw["NETDELQ"]),
             "balance_due": _number(raw["FULLYRAMTDUE"]),
             "living_sqft": _int(raw.get("SQ. FT.")),
