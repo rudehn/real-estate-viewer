@@ -8,6 +8,7 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi_filter import FilterDepends
 from fastapi_filter.contrib.sqlalchemy import Filter
 
@@ -18,6 +19,8 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import and_, desc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from api import router as v2_router
+from api.errors import register_error_handlers
 from db.criteria import market_sale_criteria
 from db.engine import get_session, init_db
 from db.models import (
@@ -97,6 +100,10 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+register_error_handlers(app)
+app.include_router(v2_router)
 
 
 # https://go.mcohio.org/applications/treasurer/search/data/Yearly/SALES_2025.zip
