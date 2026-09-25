@@ -1,6 +1,9 @@
 import datetime as dt
 
+from sqlmodel.ext.asyncio.session import AsyncSession
+
 import derived.mapbinary as mb
+from db.models import DataFile
 
 
 async def test_meta(api):
@@ -15,6 +18,20 @@ async def test_meta(api):
     assert sales["as_of"] == "2025-08-20"
     assert sales["stale"] is True  # older than 14 days
     assert {"price", "living_sqft", "year_built"} <= set(body["ranges"])
+
+
+async def test_meta_matches_differently_cased_filenames(api, county_db):
+    # The county's own file names are not consistently cased; the ingest
+    # scraper's patterns already tolerate that (re.I), so /v2/meta must too.
+    async with AsyncSession(county_db) as s:
+        s.add(DataFile(
+            filename="cama_files_20260831.ZIP", ingested_at=dt.datetime(2026, 8, 31),
+        ))
+        await s.commit()
+    r = await api.get("/v2/meta")
+    assert r.status_code == 200
+    cama = next(s for s in r.json()["sources"] if s["name"] == "cama")
+    assert cama["as_of"] == "2026-08-31"
 
 
 async def test_map_binary_with_etag(api):

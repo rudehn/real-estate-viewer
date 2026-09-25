@@ -1,5 +1,4 @@
 import datetime as dt
-import re
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends
@@ -7,6 +6,7 @@ from pydantic import BaseModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.cache import cache, data_version
+from county.sources import DATASETS
 from db.county_models import DataVersion, ParcelSummary
 from db.engine import get_session
 from db.models import DataFile
@@ -15,10 +15,13 @@ from derived.summary import latest_sale_date
 router = APIRouter(tags=["meta"])
 
 # name, label, DataFile pattern, days until stale (None = never flagged)
+# Patterns come from county.sources.DATASETS so a differently-cased file name
+# (the county's naming is not consistent) is recognized the same way the
+# ingest scraper recognizes it, instead of drifting out of sync.
 _SOURCES = (
-    ("cama", "County appraisal (CAMA)", re.compile(r"Cama_Files_(\d{8})\.zip"), 45),
-    ("taxroll", "Tax roll", re.compile(r"TAXROLL_(\d{8})\.zip"), 21),
-    ("neighborhoods", "Neighborhood names", re.compile(r"neighborhood_codes_(\d{8})\.htm"), None),
+    ("cama", "County appraisal (CAMA)", DATASETS["cama"].pattern, 45),
+    ("taxroll", "Tax roll", DATASETS["taxroll"].pattern, 21),
+    ("neighborhoods", "Neighborhood names", DATASETS["neighborhoods"].pattern, None),
 )
 SALES_STALE_DAYS = 14
 
@@ -52,7 +55,7 @@ async def _ranges(session: AsyncSession) -> dict[str, list[float]]:
     for name, column in (("price", s.c.last_sale_price), ("living_sqft", s.c.living_sqft),
                          ("year_built", s.c.year_built)):
         values = sorted(
-            v for (v,) in (await session.execute(
+            v for (v,) in (await session.exec(
                 sa.select(column).where(column.isnot(None), column > 0)
             )).all()
         )
@@ -67,12 +70,12 @@ async def meta(session: AsyncSession = Depends(get_session)) -> Meta:
     conn = await session.connection()
     latest = await latest_sale_date(conn)
     s = ParcelSummary.__table__
-    parcel_count = (await session.execute(sa.select(sa.func.count()).select_from(s))).scalar_one()
-    mapped = (await session.execute(
+    parcel_count = (await session.exec(sa.select(sa.func.count()).select_from(s))).scalar_one()
+    mapped = (await session.exec(
         sa.select(sa.func.count()).select_from(s)
         .where(s.c.is_active.is_(True), s.c.latitude.isnot(None))
     )).scalar_one()
-    files = (await session.execute(sa.select(DataFile.filename, DataFile.ingested_at))).all()
+    files = (await session.exec(sa.select(DataFile.filename, DataFile.ingested_at))).all()
     sources = [SourceStatus(
         name="sales", label="Sales", file=None, ingested_at=None, as_of=latest,
         stale=latest is None or (today - latest).days > SALES_STALE_DAYS,
@@ -89,7 +92,7 @@ async def meta(session: AsyncSession = Depends(get_session)) -> Meta:
         stale = stale_days is not None and (as_of is None or (today - as_of).days > stale_days)
         sources.append(SourceStatus(name=name, label=label, file=file, ingested_at=at,
                                     as_of=as_of, stale=stale))
-    updated = (await session.execute(
+    updated = (await session.exec(
         sa.select(DataVersion.updated_at).where(DataVersion.id == 1)
     )).scalar_one_or_none()
     ranges = await cache.get_or_compute(("ranges",), version, lambda: _ranges(session))

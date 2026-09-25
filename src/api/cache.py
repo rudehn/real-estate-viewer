@@ -39,5 +39,5 @@ cache = VersionedCache()
 
 async def data_version(session) -> int:
     t = DataVersion.__table__
-    result = await session.execute(sa.select(t.c.version).where(t.c.id == 1))
+    result = await session.exec(sa.select(t.c.version).where(t.c.id == 1))
     return result.scalar_one_or_none() or 0

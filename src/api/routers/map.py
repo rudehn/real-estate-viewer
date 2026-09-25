@@ -40,7 +40,7 @@ def _boundaries() -> dict:
 
 async def _neighborhood_features(session: AsyncSession) -> dict:
     n, ns = Neighborhood.__table__, NeighborhoodSummary.__table__
-    rows = (await session.execute(
+    rows = (await session.exec(
         sa.select(n, *[ns.c[c] for c in _STATS]).select_from(n)
         .outerjoin(ns, ns.c.code == n.c.code)
     )).mappings().all()
