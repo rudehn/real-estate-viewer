@@ -99,9 +99,8 @@ async def test_search_keys_owner_and_tax(loaded):
     assert rural.address == "11974 FREDERICK PIKE"
     assert (rural.address_search, rural.street_search) == ("11974 FREDERICK PIKE", "FREDERICK PIKE")
     assert rural.parcel_id_search == "A01001010001"
-    assert (rural.owner_name, rural.owner_search) == (
-        "MULLENAX SAMANTHA MARIE", "MULLENAX SAMANTHA MARIE"
-    )
+    assert rural.owner_name == "MULLENAX SAMANTHA MARIE"
+    assert "owner_search" not in ParcelSummary.__table__.columns  # owner_index serves search
     assert (rural.occupancy, rural.annual_tax) == ("owner_occupied", pytest.approx(6066.22))
     assert rural.year_built_is_placeholder is True
     assert rural.latitude == pytest.approx(39.92128, abs=1e-4)

@@ -15,7 +15,6 @@ from db.criteria import market_sale, single_parcel_criteria
 from db.models import FlipResult, Parcel, ParcelClass, Transaction
 from db.sqlutil import days_between
 
-SORTABLE = ("sale_date", "sale_price", "price_per_sqft", "living_sqft")
 CSV_COLUMNS = ("sale_date", "sale_price", "address", "buyer", "seller", "parcel_class",
                "neighborhood", "neighborhood_name", "living_sqft", "price_per_sqft",
                "year_built", "beds", "baths", "is_market_sale", "validity", "parcel_id")

@@ -129,7 +129,6 @@ async def build_parcel_summary(conn: AsyncConnection) -> int:
                 "address_search": normalize_search(address) or None,
                 "street_search": street_key(normalize_search(address)) or None,
                 "owner_name": r["owner_name"],
-                "owner_search": normalize_search(r["owner_name"]) or None,
                 "last_sale_date": r["sale_date"],
                 "last_sale_price": r["sale_price"],
                 "price_per_sqft": r["ppsf"],

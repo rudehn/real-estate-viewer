@@ -165,7 +165,6 @@ class ParcelSummary(SQLModel, table=True):
     address_search: str | None = Field(default=None, index=True, sa_type=SEARCH_KEY)
     street_search: str | None = Field(default=None, index=True, sa_type=SEARCH_KEY)
     owner_name: str | None = None
-    owner_search: str | None = Field(default=None, index=True)
     last_sale_date: date | None = Field(default=None, index=True)
     last_sale_price: float | None = None
     price_per_sqft: float | None = None
