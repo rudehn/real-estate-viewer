@@ -47,8 +47,8 @@ from db.models import (
     TransactionListModel,
     TransactionResponse,
 )
-from db.sqlutil import days_between
 from logging_config import configure_logging, get_logger
+from services.analytics.distress import distressed_sales, stale_parcels
 from services.analytics.market import market_buckets, top_buyers, top_sellers
 from services.analytics.owners import (
     absentee_owners,
@@ -356,38 +356,10 @@ async def get_distressed_sales(
     session: AsyncSession = Depends(get_session),
 ):
     """Find sales where the price was significantly below assessed value."""
-    ratio_expr = (Transaction.sale_price / Transaction.assessed_total).label("assessed_ratio")
-    # Nominal/family transfers are excluded (they're cheap by construction,
-    # not distressed) but foreclosures and liquidations are kept — those are
-    # exactly the distress signal this view exists to surface.
-    query = (
-        select(
-            Transaction.id,
-            Transaction.parcel_id,
-            Transaction.parcel_location,
-            Transaction.sale_date,
-            Transaction.sale_price,
-            Transaction.assessed_total,
-            ratio_expr,
-            Transaction.new_owner,
-            Transaction.neighborhood,
-            Transaction.parcel_class,
-        )
-        .where(market_sale_criteria(include_distress=True))
-        .where(Transaction.assessed_total >= min_assessed)
-        .where(Transaction.sale_price / Transaction.assessed_total <= max_ratio)
-        .order_by(ratio_expr)
-        .limit(limit)
+    return await distressed_sales(
+        session, max_ratio=max_ratio, min_assessed=min_assessed, date_from=sale_date__gte,
+        date_to=sale_date__lte, classes=[parcel_class] if parcel_class else None, limit=limit,
     )
-    if sale_date__gte:
-        query = query.where(Transaction.sale_date >= sale_date__gte)
-    if sale_date__lte:
-        query = query.where(Transaction.sale_date <= sale_date__lte)
-    if parcel_class:
-        query = query.where(Transaction.parcel_class == parcel_class)
-
-    result = await session.exec(query)
-    return result.mappings().all()
 
 
 @app.get("/analytics/absentee-owners", response_model=list[OwnerStats])
@@ -408,7 +380,7 @@ async def get_top_owners(
     session: AsyncSession = Depends(get_session),
 ):
     """Current top property owners based on most recent transaction per parcel."""
-    # Window function ranks each parcel's transactions newest-first in a single pass —
+    # Window function ranks each parcel's transactions newest-first in a single pass -
     # much faster than the double-subquery / self-join approach on large tables.
     ranked = (
         select(
@@ -554,28 +526,10 @@ async def get_stale_parcels(
     session: AsyncSession = Depends(get_session),
 ):
     """Find parcels that haven't changed hands recently."""
-    years_expr = days_between(func.current_date(), func.max(Transaction.sale_date)) / 365.25
-    query = (
-        select(
-            Transaction.parcel_id,
-            # Aggregated so Postgres accepts the GROUP BY (one row per parcel);
-            # a parcel's location/class are consistent across its transactions.
-            func.max(Transaction.parcel_location).label("parcel_location"),
-            func.max(Transaction.parcel_class).label("parcel_class"),
-            func.max(Transaction.sale_date).label("last_sale_date"),
-            func.max(Transaction.sale_price).label("last_sale_price"),
-            years_expr.label("years_since_sale"),
-        )
-        .group_by(Transaction.parcel_id)
-        .having(years_expr >= min_years)
-        .order_by(desc(years_expr))
-        .limit(limit)
+    return await stale_parcels(
+        session, min_years=min_years, classes=[parcel_class] if parcel_class else None,
+        limit=limit,
     )
-    if parcel_class:
-        query = query.where(Transaction.parcel_class == parcel_class)
-
-    result = await session.exec(query)
-    return result.mappings().all()
 
 
 @app.get("/analytics/acquisition-waves", response_model=list[AcquisitionWave])
