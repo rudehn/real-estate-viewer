@@ -22,16 +22,33 @@ def steps(monkeypatch):
         calls.append("geocode")
         return 0
 
+    async def cama():
+        calls.append("cama")
+
+    async def neighborhood_names():
+        calls.append("neighborhood_names")
+
+    async def taxroll():
+        calls.append("taxroll")
+
+    async def derived():
+        calls.append("derived")
+
     monkeypatch.setattr(populate, "retrieve_yearly_data", retrieve_yearly)
     monkeypatch.setattr(populate, "ingest_data_files", ingest_yearly)
     monkeypatch.setattr(populate, "ingest_weekly_data", ingest_weekly)
     monkeypatch.setattr(populate, "geocode_parcels", geocode)
+    monkeypatch.setattr(populate, "_cama", cama)
+    monkeypatch.setattr(populate, "_neighborhood_names", neighborhood_names)
+    monkeypatch.setattr(populate, "_taxroll", taxroll)
+    monkeypatch.setattr(populate, "_derived", derived)
     return calls
 
 
 async def test_all_steps_run(steps):
     await populate.populate_once()
-    assert steps == ["retrieve_yearly", "ingest_yearly", "ingest_weekly", "geocode"]
+    assert steps == ["retrieve_yearly", "ingest_yearly", "ingest_weekly", "cama",
+                     "neighborhood_names", "taxroll", "geocode", "derived"]
 
 
 async def test_yearly_failure_does_not_block_weekly_or_geocode(steps, monkeypatch):
@@ -41,7 +58,8 @@ async def test_yearly_failure_does_not_block_weekly_or_geocode(steps, monkeypatc
 
     monkeypatch.setattr(populate, "retrieve_yearly_data", broken_retrieve)
     await populate.populate_once()
-    assert steps == ["ingest_weekly", "geocode"]
+    assert steps == ["ingest_weekly", "cama", "neighborhood_names", "taxroll", "geocode",
+                     "derived"]
 
 
 async def test_weekly_failure_does_not_block_geocode(steps, monkeypatch):
@@ -50,4 +68,12 @@ async def test_weekly_failure_does_not_block_geocode(steps, monkeypatch):
 
     monkeypatch.setattr(populate, "ingest_weekly_data", broken_weekly)
     await populate.populate_once()
-    assert steps == ["retrieve_yearly", "ingest_yearly", "geocode"]
+    assert steps == ["retrieve_yearly", "ingest_yearly", "cama", "neighborhood_names",
+                     "taxroll", "geocode", "derived"]
+
+
+async def test_county_steps_can_be_disabled(steps, monkeypatch):
+    monkeypatch.setenv("COUNTY_INGEST", "false")
+    await populate.populate_once()
+    assert "cama" not in steps and "taxroll" not in steps
+    assert steps[-1] == "derived"

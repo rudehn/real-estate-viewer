@@ -18,9 +18,15 @@ backend runs this once on startup and then on a repeating interval (see
 
 import asyncio
 import os
+from pathlib import Path
 
 from db.ingestors import ingest_data_files, ingest_weekly_data
+from derived.summary import rebuild_derived
+from ingest.cama_ingest import ingest_cama
+from ingest.neighborhood_ingest import ingest_neighborhood_names
+from ingest.taxroll_ingest import ingest_taxroll
 from logging_config import get_logger
+from services.county_sync import sync_dataset
 from services.data_retrieval import DATA_DIR, retrieve_yearly_data
 from services.geocoding import CENSUS_BATCH_LIMIT, geocode_parcels
 
@@ -74,18 +80,45 @@ async def _geocode() -> None:
                     _MAX_GEOCODE_BATCHES)
 
 
-async def populate_once() -> None:
-    """Run one full download -> ingest -> geocode pass."""
-    logger.info("Population run starting (DATA_DIR=%s)...", DATA_DIR)
+COUNTY_DATA_DIR = Path(DATA_DIR) / "county"
 
-    # 1 + 2. Yearly history.
+
+async def _cama() -> None:
+    await sync_dataset("cama", lambda path, engine: ingest_cama(path, engine=engine),
+                       data_dir=COUNTY_DATA_DIR)
+
+
+async def _neighborhood_names() -> None:
+    await sync_dataset(
+        "neighborhoods",
+        lambda path, engine: ingest_neighborhood_names(path, engine=engine),
+        data_dir=COUNTY_DATA_DIR,
+    )
+
+
+async def _taxroll() -> None:
+    # Published daily; a weekly refresh is plenty for bills and occupancy.
+    await sync_dataset("taxroll", lambda path, engine: ingest_taxroll(path, engine=engine),
+                       data_dir=COUNTY_DATA_DIR, min_age_days=7)
+
+
+async def _derived() -> None:
+    await rebuild_derived()
+
+
+async def populate_once() -> None:
+    """Run one full download -> ingest -> geocode -> derive pass."""
+    logger.info("Population run starting (DATA_DIR=%s)...", DATA_DIR)
     await _run_step("yearly", _yearly)
-    # 3. Recent weekly sales.
     await _run_step("weekly", _weekly)
-    # 4. Geocoding (optional).
+    if _env_flag("COUNTY_INGEST", True):
+        await _run_step("cama", _cama)
+        await _run_step("neighborhood_names", _neighborhood_names)
+        await _run_step("taxroll", _taxroll)
+    # After CAMA, so the Census geocoder only handles parcels the county lacks.
     if _env_flag("GEOCODE", True):
         await _run_step("geocode", _geocode)
-
+    await _run_step("derived", _derived)
     logger.info("Population run complete.")
 
 
