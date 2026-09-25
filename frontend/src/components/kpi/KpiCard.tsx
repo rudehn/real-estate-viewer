@@ -14,18 +14,18 @@ interface KpiCardProps {
 export function KpiCard({ title, value, delta, deltaLabel, icon, isLoading }: KpiCardProps) {
   return (
     <Card>
-      <CardHeader className="pb-2 pt-4 px-4">
+      <CardHeader className="pb-1 pt-3 px-3 sm:pb-2 sm:pt-4 sm:px-4">
         <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
           {icon && <span>{icon}</span>}
           {title}
         </CardTitle>
       </CardHeader>
-      <CardContent className="px-4 pb-4">
+      <CardContent className="px-3 pb-3 sm:px-4 sm:pb-4">
         {isLoading ? (
           <Skeleton className="h-8 w-24" />
         ) : (
-          <div className="flex items-end gap-2">
-            <span className="text-2xl font-bold">{value}</span>
+          <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
+            <span className="text-xl sm:text-2xl font-bold tabular-nums">{value}</span>
             {delta !== undefined && (
               <Badge
                 variant={delta >= 0 ? "default" : "destructive"}

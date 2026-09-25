@@ -21,7 +21,7 @@ function HoldingsSummary({ parcels }: { parcels: OwnerParcel[] }) {
   const totalAcres = parcels.reduce((s, p) => s + p.acres, 0);
   const totalValue = parcels.reduce((s, p) => s + (p.assessed_total ?? 0), 0);
   return (
-    <div className="grid grid-cols-3 gap-3 text-sm">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
       <div className="bg-muted/50 rounded-lg p-3">
         <div className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Parcels</div>
         <div className="font-semibold text-lg">{parcels.length}</div>

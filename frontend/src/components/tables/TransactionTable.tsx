@@ -104,12 +104,60 @@ export function TransactionTable({ data, totalCount }: Props) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">
-          Transactions ({data.length.toLocaleString()} shown of {totalCount.toLocaleString()} total)
-        </CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-sm font-medium">
+            Transactions ({data.length.toLocaleString()} shown of {totalCount.toLocaleString()} total)
+          </CardTitle>
+          {/* Phones show cards instead of the sortable table header. */}
+          <select
+            aria-label="Sort transactions"
+            className="sm:hidden h-9 rounded-md border bg-background px-2 text-sm"
+            value={`${sorting[0]?.id ?? "sale_date"}:${sorting[0]?.desc ? "desc" : "asc"}`}
+            onChange={(e) => {
+              const [id, dir] = e.target.value.split(":");
+              setSorting([{ id, desc: dir === "desc" }]);
+            }}
+          >
+            <option value="sale_date:desc">Newest first</option>
+            <option value="sale_date:asc">Oldest first</option>
+            <option value="sale_price:desc">Highest price</option>
+            <option value="sale_price:asc">Lowest price</option>
+          </select>
+        </div>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="overflow-x-auto">
+        <ul className="sm:hidden divide-y border-t">
+          {table.getRowModel().rows.map((row) => {
+            const t = row.original;
+            return (
+              <li key={row.id} className="px-4 py-3">
+                <div className="flex items-baseline justify-between gap-3">
+                  <Link
+                    href={`/dashboard/parcels/${t.parcel_id}`}
+                    className="min-w-0 truncate font-medium text-primary"
+                  >
+                    {t.parcel_location}
+                  </Link>
+                  <span className="shrink-0 font-semibold tabular-nums">
+                    {formatCurrencyFull(t.sale_price)}
+                  </span>
+                </div>
+                <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+                  <span>{formatDate(t.sale_date)}</span>
+                  <span>{t.parcel_class}</span>
+                  {t.acres > 0 && <span>{t.acres.toFixed(2)} ac</span>}
+                  {t.neighborhood && <span className="truncate">{neighborhoodName(t.neighborhood)}</span>}
+                </div>
+                <div className="mt-1 truncate text-xs">
+                  <OwnerLink name={t.new_owner} />
+                  <span className="text-muted-foreground"> from </span>
+                  <OwnerLink name={t.old_owner} className="text-muted-foreground" />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="hidden sm:block overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-muted/50 border-b">
               {table.getHeaderGroups().map((hg) => (

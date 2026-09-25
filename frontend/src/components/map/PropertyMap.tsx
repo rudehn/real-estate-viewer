@@ -50,13 +50,16 @@ function MapController({ transactions }: { transactions: TransactionResponse[] }
         inCounty(t.parcel.latitude, t.parcel.longitude)
     );
     if (geocoded.length === 0) return;
-    const lats = geocoded.map((t) => t.parcel!.latitude!);
-    const lons = geocoded.map((t) => t.parcel!.longitude!);
+    // Fit the central 98% of points: a few stray geocodes at the edge of the
+    // county box would otherwise zoom a phone-sized map far out.
+    const lats = geocoded.map((t) => t.parcel!.latitude!).sort((a, b) => a - b);
+    const lons = geocoded.map((t) => t.parcel!.longitude!).sort((a, b) => a - b);
+    const at = (xs: number[], q: number) => xs[Math.min(xs.length - 1, Math.floor(xs.length * q))];
     const bounds: [[number, number], [number, number]] = [
-      [Math.min(...lats), Math.min(...lons)],
-      [Math.max(...lats), Math.max(...lons)],
+      [at(lats, 0.01), at(lons, 0.01)],
+      [at(lats, 0.99), at(lons, 0.99)],
     ];
-    map.fitBounds(bounds, { padding: [30, 30] });
+    map.fitBounds(bounds, { padding: [20, 20] });
     hasFlown.current = true;
   }, [map, transactions]);
 
@@ -71,7 +74,7 @@ function PriceLegend({ breaks, colors }: { breaks: number[]; colors: string[] })
     `> ${formatCurrency(breaks[breaks.length - 1])}`,
   ];
   return (
-    <div className="absolute bottom-4 right-3 z-[1000] bg-background/90 border rounded-md shadow px-3 py-2 text-xs space-y-1">
+    <div className="absolute bottom-4 right-3 z-[1000] bg-background/90 border rounded-md shadow px-3 py-2 text-xs space-y-1 max-sm:bottom-6 max-sm:right-2 max-sm:px-2 max-sm:py-1.5 max-sm:text-[10px] max-sm:space-y-0.5">
       <div className="font-medium mb-1">Sale price (quintiles)</div>
       {labels.map((label, i) => (
         <div key={i} className="flex items-center gap-2">
@@ -112,6 +115,7 @@ export default function PropertyMap({ transactions }: Props) {
       <MapContainer
         center={DEFAULT_CENTER}
         zoom={DEFAULT_ZOOM}
+        zoomSnap={0.25}
         style={{ height: "100%", width: "100%" }}
         preferCanvas
       >

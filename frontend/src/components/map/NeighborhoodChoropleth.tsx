@@ -156,7 +156,7 @@ export default function NeighborhoodChoropleth({ sale_date__gte, sale_date__lte 
 
       {/* Legend */}
       {labels.length > 0 && (
-        <div className="absolute bottom-4 right-3 z-[1000] bg-background/90 border rounded-md shadow px-3 py-2 text-xs space-y-1">
+        <div className="absolute bottom-4 right-3 z-[1000] bg-background/90 border rounded-md shadow px-3 py-2 text-xs space-y-1 max-sm:bottom-6 max-sm:right-2 max-sm:px-2 max-sm:py-1.5 max-sm:text-[10px] max-sm:space-y-0.5">
           <div className="font-medium mb-1">{metricDef.label} (quintiles)</div>
           {labels.map((label, i) => (
             <div key={i} className="flex items-center gap-2">

@@ -156,7 +156,8 @@ export default function ParcelDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="w-full text-xs">
+            <div className="overflow-x-auto">
+            <table className="w-full text-xs whitespace-nowrap">
               <thead className="bg-muted/50 border-b">
                 <tr>
                   {["Address", "Date", "Sale Price", "Acres"].map((h) => (
@@ -188,6 +189,7 @@ export default function ParcelDetailPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -205,7 +207,8 @@ export default function ParcelDetailPage() {
               <Skeleton className="h-24" />
             </div>
           ) : (
-            <table className="w-full text-xs">
+            <div className="overflow-x-auto">
+            <table className="w-full text-xs whitespace-nowrap">
               <thead className="bg-muted/50 border-b">
                 <tr>
                   {["Date", "Sale Price", "Buyer", "Seller", "Class", "Acres"].map((h) => (
@@ -236,6 +239,7 @@ export default function ParcelDetailPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>

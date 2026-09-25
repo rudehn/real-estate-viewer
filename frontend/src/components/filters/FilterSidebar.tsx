@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useFilters } from "@/lib/hooks/useFilters";
 import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,17 +17,12 @@ const CLASS_COLORS: Record<ParcelClass, string> = {
   Utilities: "bg-yellow-500",
 };
 
-export function FilterSidebar() {
-  const { rawFilters, setFilters, resetFilters, PARCEL_CLASSES } = useFilters();
+/** The filter controls, shared by the desktop sidebar and the mobile sheet. */
+function FilterPanel() {
+  const { rawFilters, setFilters, PARCEL_CLASSES } = useFilters();
 
   return (
-    <aside className="w-64 min-h-screen border-r bg-muted/20 p-4 flex flex-col gap-5 shrink-0">
-      <div className="flex items-center justify-between">
-        <h2 className="font-semibold text-sm">Filters</h2>
-        <Button variant="ghost" size="sm" onClick={resetFilters} className="text-xs h-7">
-          Reset
-        </Button>
-      </div>
+    <div className="flex flex-col gap-5">
 
       {/* Date Range */}
       <div>
@@ -40,7 +36,7 @@ export function FilterSidebar() {
               type="date"
               value={rawFilters.sale_date__gte}
               onChange={(e) => void setFilters({ sale_date__gte: e.target.value })}
-              className="w-full mt-1 text-sm border rounded px-2 py-1 bg-background"
+              className="w-full mt-1 text-base sm:text-sm border rounded px-2 py-1.5 bg-background"
             />
           </div>
           <div>
@@ -49,7 +45,7 @@ export function FilterSidebar() {
               type="date"
               value={rawFilters.sale_date__lte}
               onChange={(e) => void setFilters({ sale_date__lte: e.target.value })}
-              className="w-full mt-1 text-sm border rounded px-2 py-1 bg-background"
+              className="w-full mt-1 text-base sm:text-sm border rounded px-2 py-1.5 bg-background"
             />
           </div>
         </div>
@@ -146,9 +142,64 @@ export function FilterSidebar() {
           onChange={(e) =>
             void setFilters({ new_owner__ilike: e.target.value || null })
           }
-          className="w-full mt-2 text-sm border rounded px-2 py-1.5 bg-background"
+          className="w-full mt-2 text-base sm:text-sm border rounded px-2 py-1.5 bg-background"
         />
       </div>
+    </div>
+  );
+}
+
+/** Desktop: a fixed-width column beside the page (lg and up). */
+export function FilterSidebar() {
+  const { resetFilters } = useFilters();
+  return (
+    <aside className="hidden lg:flex w-64 shrink-0 flex-col gap-5 overflow-y-auto border-r bg-muted/20 p-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold text-sm">Filters</h2>
+        <Button variant="ghost" size="sm" onClick={resetFilters} className="text-xs h-7">
+          Reset
+        </Button>
+      </div>
+      <FilterPanel />
     </aside>
+  );
+}
+
+/** Phones and tablets: the same controls in a slide-over sheet. */
+export function MobileFilterSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { resetFilters } = useFilters();
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return (
+    <div className="lg:hidden fixed inset-0 z-[2000]" role="dialog" aria-modal="true" aria-label="Filters">
+      <button
+        aria-label="Close filters"
+        className="absolute inset-0 bg-black/40"
+        onClick={onClose}
+      />
+      <div className="absolute inset-y-0 right-0 flex w-[88%] max-w-sm flex-col bg-background shadow-xl">
+        <div className="flex items-center justify-between border-b px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+          <h2 className="font-semibold">Filters</h2>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" onClick={resetFilters}>
+              Reset
+            </Button>
+            <Button size="sm" onClick={onClose}>
+              Done
+            </Button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <FilterPanel />
+        </div>
+      </div>
+    </div>
   );
 }
