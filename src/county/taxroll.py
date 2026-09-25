@@ -49,6 +49,7 @@ REQUIRED_COLUMNS = {
     "YRBL",
     "SALESDTE",
     "PRICE",
+    *(f"HLF{h}{c}" for h in (1, 2) for c in BILL_COMPONENTS),
 }
 
 

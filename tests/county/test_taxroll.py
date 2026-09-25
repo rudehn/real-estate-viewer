@@ -89,3 +89,21 @@ def test_missing_column_is_rejected_with_its_name(tmp_path):
     with pytest.raises(TooManyBadRows) as exc_info:
         list(reader.rows(path))
     assert "FRCLSR" in str(exc_info.value)
+
+
+def test_missing_bill_component_column_is_rejected(tmp_path):
+    from county.fixedwidth import TooManyBadRows
+
+    with zipfile.ZipFile(FIXTURE) as zf:
+        (entry,) = zf.namelist()
+        lines = zf.read(entry).split(b'\r\n')
+    # Rename HLF1ADJ to HLF1ADJ2 in header
+    header = lines[0].replace(b'HLF1ADJ', b'HLF1ADJ2')
+    broken = header + b'\r\n' + b'\r\n'.join(lines[1:])
+    path = tmp_path / "TAXROLL_20260923.zip"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr(entry, broken)
+    reader = TaxRollReader()
+    with pytest.raises(TooManyBadRows) as exc_info:
+        list(reader.rows(path))
+    assert "HLF1ADJ" in str(exc_info.value)
