@@ -88,7 +88,9 @@ export function AcquisitionWavesTable({ data }: WavesProps) {
                     {row.total_spent > 0 ? (
                       formatCurrency(row.total_spent)
                     ) : (
-                      <span className="text-muted-foreground">$0 (recorded transfers)</span>
+                      <span className="text-muted-foreground" title="Recorded as transfers with no sale price">
+                        No price
+                      </span>
                     )}
                   </td>
                 </tr>

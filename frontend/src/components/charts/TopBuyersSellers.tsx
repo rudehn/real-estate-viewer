@@ -4,6 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGri
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils/formatters";
 import { useIsPhone } from "@/lib/hooks/useMediaQuery";
+import { SingleLineTick } from "./SingleLineTick";
 import type { OwnerStats } from "@/lib/types/api";
 
 interface Props {
@@ -13,9 +14,8 @@ interface Props {
 
 function OwnerChart({ data, title, color }: { data: OwnerStats[]; title: string; color: string }) {
   const isPhone = useIsPhone();
-  const maxLen = isPhone ? 16 : 22;
   const chartData = data.slice(0, 15).map((d) => ({
-    name: d.owner_name.length > maxLen ? d.owner_name.slice(0, maxLen) + "…" : d.owner_name,
+    name: d.owner_name,
     count: d.transaction_count,
     total: d.total_spent,
   }));
@@ -30,7 +30,7 @@ function OwnerChart({ data, title, color }: { data: OwnerStats[]; title: string;
           <BarChart data={chartData} layout="vertical" margin={{ left: 4, right: 20, top: 4, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-muted" />
             <XAxis type="number" tick={{ fontSize: 10 }} />
-            <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={isPhone ? 112 : 150} interval={0} />
+            <YAxis type="category" dataKey="name" tick={<SingleLineTick />} width={isPhone ? 132 : 200} interval={0} />
             <Tooltip
               formatter={(v: number, n: string) => [
                 n === "count" ? `${v} transactions` : formatCurrency(v),
