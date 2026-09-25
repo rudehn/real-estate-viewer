@@ -7,8 +7,11 @@ _GOVERNMENT = re.compile(
     r"UNITED STATES|USA|DEPT OF|DEPARTMENT OF|COMMISSIONERS|CONSERVANCY|PORT AUTHORITY|"
     r"REGIONAL TRANSIT|PARK DISTRICT|FIVE RIVERS)\b"
 )
+# "CO" is a company unless it is the "co-" of "CO TRUSTEE" / "CO TR" (an
+# individual who is one of several trustees), which the county writes often.
 _COMPANY = re.compile(
-    r"\b(LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LP|LLP|LTD|LIMITED|PARTNERS|"
+    r"\b(LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO(?![\s-]+(?:TR|TRS|TRUSTEE|TRUSTEES)\b)|"
+    r"COMPANY|LP|LLP|LTD|LIMITED|PARTNERS|"
     r"PARTNERSHIP|HOLDINGS|PROPERTIES|INVESTMENTS|INVESTMENT|REALTY|GROUP|ASSOC|ASSOCIATION|"
     r"BANK|MORTGAGE|FUND|ENTERPRISES|MANAGEMENT|DEVELOPMENT|HOMES|CHURCH|MINISTRIES)\b"
 )
@@ -17,15 +20,16 @@ _STATE_ZIP = re.compile(r"\b([A-Z]{2})\s+\d{5}(?:-\d{4})?\s*$")
 
 
 def classify_owner_name(name: str | None) -> str | None:
+    """Spec 6.4 order: government, then company, then trust."""
     if not name:
         return None
     upper = re.sub(r"[.,]", " ", name.upper())
     if _GOVERNMENT.search(upper):
         return "government"
-    if _TRUST.search(upper):
-        return "trust"
     if _COMPANY.search(upper):
         return "company"
+    if _TRUST.search(upper):
+        return "trust"
     return None
 
 

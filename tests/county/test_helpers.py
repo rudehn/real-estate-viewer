@@ -64,6 +64,15 @@ def test_district_info():
         ("NVR INC", "company"),
         ("FEDERAL NATIONAL MORTGAGE ASSOC", "company"),
         ("SMITH FAMILY TRUST", "trust"),
+        # Spec 6.4 order: government, then company, then trust.
+        ("SMITH FAMILY TRUST LLC", "company"),
+        ("FIRST NATIONAL BANK TRUSTEE", "company"),
+        ("EQUITY TRUST CO", "company"),
+        # "CO TRUSTEE" is a co-trustee, not a company.
+        ("JACKSON FRANK E CO TRUSTEE", "trust"),
+        ("ROWE DONALD AND CO TRUSTEES", "trust"),
+        ("KNAPP DAVID O CO TR AND", "trust"),
+        ("SMITH JOHN CO-TRUSTEE", "trust"),
         ("JONES MARY TR", "trust"),
         ("MULLENAX SAMANTHA MARIE", None),
         (None, None),
