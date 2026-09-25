@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -219,23 +219,52 @@ def sketch_lines(addn_rows: list[dict]) -> list[dict]:
     ]
 
 
-def _addn_by_card(zip_path: Path) -> dict[tuple[str, int], list[dict]]:
-    """ADDN lines grouped per dwelling card, keeping only the fields we use."""
-    grouped: dict[tuple[str, int], list[dict]] = defaultdict(list)
+@dataclass(frozen=True)
+class CardAddn:
+    """What a dwelling row needs from its card's ADDN lines."""
+
+    sketch: str  # JSON of sketch_lines()
+    attached_garage_sqft: int
+
+
+def _reduce_card(lines: list[dict]) -> CardAddn:
+    lines = sorted(lines, key=lambda line: line["line"])
+    garage = sum(line["area"] or 0 for line in lines if ATTACHED_GARAGE_CODES & set(line["codes"]))
+    return CardAddn(sketch=json.dumps(lines), attached_garage_sqft=garage)
+
+
+def _store_card(cards: dict[tuple[str, int], CardAddn], key: tuple[str, int],
+                rows: list[dict]) -> None:
+    lines = sketch_lines(rows)
+    if key in cards:  # this card's lines were split across the file
+        lines += json.loads(cards[key].sketch)
+    cards[key] = _reduce_card(lines)
+
+
+def _addn_by_card(zip_path: Path) -> dict[tuple[str, int], CardAddn]:
+    """Each dwelling card's ADDN lines, reduced to its sketch and garage area.
+
+    The export lists a card's lines together, so each card is reduced as soon
+    as the next one starts and only one card's raw rows are held at a time
+    (holding all 820k rows as dicts peaked around 450 MB).
+    """
+    cards: dict[tuple[str, int], CardAddn] = {}
+    key: tuple[str, int] | None = None
+    rows: list[dict] = []
     for row in _checked_rows(zip_path, "ADDN"):
-        grouped[(row["parid"], row["card"])].append(
-            {k: row[k] for k in ("lline", "area", "vect", *_ADDN_CODE_FIELDS)}
-        )
-    return grouped
+        row_key = (row["parid"], row["card"])
+        if row_key != key:
+            if key is not None:
+                _store_card(cards, key, rows)
+            key, rows = row_key, []
+        rows.append(row)
+    if key is not None:
+        _store_card(cards, key, rows)
+    return cards
 
 
-def _dwelling_row(row: dict, addn: list[dict], ctx: CamaContext) -> dict:
+def _dwelling_row(row: dict, addn: CardAddn | None, ctx: CamaContext) -> dict:
     label = ctx.decodes.label
-    garage = sum(
-        line["area"] or 0
-        for line in addn
-        if ATTACHED_GARAGE_CODES & {line[f] for f in _ADDN_CODE_FIELDS}
-    )
     return {
         "parcel_id": row["parid"],
         "card": row["card"],
@@ -259,9 +288,9 @@ def _dwelling_row(row: dict, addn: list[dict], ctx: CamaContext) -> dict:
         "fuel": label("DWELDAT", "FUEL", row["fuel"]),
         "has_central_air": row["heat"] == "4",
         "fireplaces": (row["wbfp_o"] or 0) + (row["wbfp_s"] or 0) + (row["wbfp_pf"] or 0),
-        "attached_garage_sqft": garage,
+        "attached_garage_sqft": addn.attached_garage_sqft if addn else 0,
         "basement_garage_cars": row["bsmtcar"] or 0,
-        "sketch": json.dumps(sketch_lines(addn)) if addn else None,
+        "sketch": addn.sketch if addn else None,
         "snapshot_date": ctx.snapshot,
     }
 
@@ -271,7 +300,7 @@ async def load_dwellings(conn: AsyncConnection, ctx: CamaContext) -> int:
     await conn.execute(sa.delete(Dwelling.__table__))
     written = 0
     rows = (
-        _dwelling_row(r, addn.get((r["parid"], r["card"]), []), ctx)
+        _dwelling_row(r, addn.get((r["parid"], r["card"])), ctx)
         for r in _checked_rows(ctx.zip_path, "DWELL")
     )
     async for chunk in in_thread_chunks(rows):

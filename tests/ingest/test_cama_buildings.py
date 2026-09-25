@@ -4,6 +4,7 @@ from pathlib import Path
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+import ingest.cama_ingest as cama_ingest
 from db.county_models import Dwelling, ParcelFeature
 from ingest.cama_ingest import ingest_cama, sketch_lines
 
@@ -57,6 +58,33 @@ def test_sketch_lines_sorts_and_drops_blank_codes():
     ]
     assert [line["line"] for line in sketch_lines(rows)] == [0, 1]
     assert sketch_lines(rows)[0]["codes"] == []
+
+
+def _addn(parid, card, lline, area, first=None):
+    return {"parid": parid, "card": card, "lline": lline, "lower": None, "first": first,
+            "second": None, "third": None, "area": area, "vect": f"V{lline}", "extra": "x"}
+
+
+def test_addn_is_reduced_per_card(monkeypatch):
+    """Only the sketch JSON and the attached garage area are kept per card, and
+    a card whose lines are split across the file still comes out whole."""
+    rows = [
+        _addn("P1", 1, 1, 384, first="13"),
+        _addn("P1", 1, 2, 100),
+        _addn("P2", 1, 0, 900),
+        _addn("P1", 1, 0, 1008),
+        _addn("P1", 1, 3, 200, first="23"),
+    ]
+    monkeypatch.setattr(cama_ingest, "_checked_rows", lambda zip_path, table: iter(rows))
+    cards = cama_ingest._addn_by_card(Path("unused.zip"))
+    assert set(cards) == {("P1", 1), ("P2", 1)}
+    p1 = cards[("P1", 1)]
+    assert p1.attached_garage_sqft == 584
+    assert [line["line"] for line in json.loads(p1.sketch)] == [0, 1, 2, 3]
+    assert json.loads(p1.sketch)[1] == {"line": 1, "codes": ["13"], "area": 384, "vector": "V1"}
+    assert (cards[("P2", 1)].attached_garage_sqft, len(json.loads(cards[("P2", 1)].sketch))) == (
+        0, 1
+    )
 
 
 async def test_features(db_engine):
