@@ -14,8 +14,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import Link from "next/link";
-
-const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
+import { usePublicConfig } from "@/components/providers/PublicConfigProvider";
 
 function StreetView({
   lat, lng, address,
@@ -24,11 +23,12 @@ function StreetView({
   lng: number | null | undefined;
   address: string;
 }) {
+  const { googleMapsApiKey } = usePublicConfig();
   const query = lat && lng ? `${lat},${lng}` : address;
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 
-  if (MAPS_KEY && lat && lng) {
-    const src = `https://maps.googleapis.com/maps/api/streetview?size=800x300&location=${lat},${lng}&key=${MAPS_KEY}`;
+  if (googleMapsApiKey && lat && lng) {
+    const src = `https://maps.googleapis.com/maps/api/streetview?size=800x300&location=${lat},${lng}&key=${encodeURIComponent(googleMapsApiKey)}`;
     return (
       <a href={mapsUrl} target="_blank" rel="noreferrer">
         {/* The Street View API already serves a sized image; next/image would

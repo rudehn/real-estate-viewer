@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { MapContainer, TileLayer, GeoJSON } from "react-leaflet";
+import { MapContainer, GeoJSON } from "react-leaflet";
 import { useQuery } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import type { Feature } from "geojson";
 import type { Layer, PathOptions } from "leaflet";
 import "leaflet/dist/leaflet.css";
+import BaseTileLayer from "@/components/map/BaseTileLayer";
 import { cn } from "@/lib/utils";
 import {
   PRICE_COLORS,
@@ -112,19 +113,7 @@ export default function NeighborhoodChoropleth({ sale_date__gte, sale_date__lte 
   return (
     <div className="relative h-full w-full rounded-lg overflow-hidden border">
       <MapContainer center={DEFAULT_CENTER} zoom={11} style={{ height: "100%", width: "100%" }} preferCanvas>
-        <TileLayer
-          key={isDark ? "dark" : "light"}
-          attribution={
-            isDark
-              ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-              : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          }
-          url={
-            isDark
-              ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-              : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          }
-        />
+        <BaseTileLayer isDark={isDark} />
         {geojson && (
           <GeoJSON
             // Remount when the join inputs change: leaflet styles are set at add time.

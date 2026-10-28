@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
+import { MapContainer, CircleMarker, Popup, useMap } from "react-leaflet";
 import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
 import "leaflet/dist/leaflet.css";
+import BaseTileLayer from "@/components/map/BaseTileLayer";
 import { formatCurrencyFull, formatDate } from "@/lib/utils/formatters";
 import type { OwnerParcel } from "@/lib/types/api";
 import Link from "next/link";
@@ -59,19 +60,7 @@ export default function HoldingsMap({ holdings }: { holdings: OwnerParcel[] }) {
   return (
     <div className="h-full w-full rounded-lg overflow-hidden border">
       <MapContainer center={DEFAULT_CENTER} zoom={11} style={{ height: "100%", width: "100%" }} preferCanvas>
-        <TileLayer
-          key={isDark ? "dark" : "light"}
-          attribution={
-            isDark
-              ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-              : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          }
-          url={
-            isDark
-              ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-              : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          }
-        />
+        <BaseTileLayer isDark={isDark} />
         <FitBounds points={located.map((p) => [p.latitude!, p.longitude!])} />
         {located.map((p) => (
           <CircleMarker
