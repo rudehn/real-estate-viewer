@@ -137,10 +137,10 @@ export default function PropertyMap({ transactions }: Props) {
             <Popup>
               <div className="text-xs space-y-0.5 min-w-[180px]">
                 <div className="font-semibold text-sm">{t.parcel_location}</div>
-                <div className="text-green-700 font-medium">{formatCurrencyFull(t.sale_price)}</div>
-                <div className="text-gray-500">{formatDate(t.sale_date)}</div>
+                <div className="text-green-700 dark:text-green-400 font-medium">{formatCurrencyFull(t.sale_price)}</div>
+                <div className="text-muted-foreground">{formatDate(t.sale_date)}</div>
                 <div>{t.new_owner}</div>
-                <div className="text-gray-400">
+                <div className="text-muted-foreground">
                   {t.parcel_class}
                   {t.acres > 0 && ` · ${t.acres.toFixed(2)} ac`}
                 </div>
