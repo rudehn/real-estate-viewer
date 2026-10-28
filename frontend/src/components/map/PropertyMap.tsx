@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
+import { MapContainer, CircleMarker, Popup, useMap } from "react-leaflet";
 import { useTheme } from "next-themes";
 import "leaflet/dist/leaflet.css";
+import BaseTileLayer from "@/components/map/BaseTileLayer";
 import {
   PRICE_COLORS,
   PRICE_COLORS_DARK,
@@ -119,19 +120,7 @@ export default function PropertyMap({ transactions }: Props) {
         style={{ height: "100%", width: "100%" }}
         preferCanvas
       >
-        <TileLayer
-          key={isDark ? "dark" : "light"}
-          attribution={
-            isDark
-              ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-              : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          }
-          url={
-            isDark
-              ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-              : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          }
-        />
+        <BaseTileLayer isDark={isDark} />
         <MapController transactions={transactions} />
         {geocoded.map((t) => (
           <CircleMarker

@@ -24,6 +24,13 @@ A FastAPI backend scrapes and serves the sales/parcel data; a Next.js frontend r
 | `GEOCODE` | `true` | Whether the population run geocodes parcels missing coordinates. |
 | `COUNTY_INGEST` | `true` | Whether the population run also ingests CAMA, the tax roll and neighborhood names. |
 
+The frontend reads its browser-visible keys from its own environment on each request (see `frontend/src/app/dashboard/layout.tsx`), so the published image needs no rebuild to change them.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CARTO_API_KEY` | unset | Key for CARTO's dark basemap, free at <https://carto.com/basemaps/apikey>. Unset, dark mode shows inverted OpenStreetMap tiles instead. |
+| `GOOGLE_MAPS_API_KEY` | unset | Enables the Street View image on parcel pages. Unset, the page links to Google Maps instead. |
+
 ## Automated population
 
 When `AUTO_INGEST=true`, the backend runs a background loop (`src/services/populate.py`) that:

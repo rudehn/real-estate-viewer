@@ -67,3 +67,10 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Dark basemap fallback when no CARTO key is configured (see BaseTileLayer):
+   invert the OSM tiles, rotate hues back so water stays blue, and mute them
+   so the data drawn on top stays the focus. */
+.map-tiles-dark {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.35);
+}
