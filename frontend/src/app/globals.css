@@ -74,3 +74,54 @@
 .map-tiles-dark {
   filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.35);
 }
+
+/* Leaflet's controls and popups ship light-only; match them to the dark theme.
+   Selectors are qualified past leaflet.css's own so load order doesn't matter. */
+.dark .leaflet-container .leaflet-control-attribution {
+  background: hsl(var(--card) / 0.85);
+  color: hsl(var(--muted-foreground));
+}
+.dark .leaflet-container .leaflet-control-attribution a {
+  color: hsl(var(--foreground));
+}
+.dark .leaflet-container .leaflet-bar a {
+  background-color: hsl(var(--card));
+  border-bottom-color: hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+.dark .leaflet-container .leaflet-bar a:hover,
+.dark .leaflet-container .leaflet-bar a:focus {
+  background-color: hsl(var(--accent));
+}
+.dark .leaflet-container .leaflet-bar a.leaflet-disabled {
+  background-color: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+}
+.dark .leaflet-touch .leaflet-bar {
+  border-color: hsl(var(--border));
+}
+.dark .leaflet-container .leaflet-popup-content-wrapper,
+.dark .leaflet-container .leaflet-popup-tip {
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 0 0 1px hsl(var(--border)), 0 3px 14px rgb(0 0 0 / 0.6);
+}
+.dark .leaflet-container .leaflet-popup-content a {
+  color: hsl(var(--primary));
+}
+.dark .leaflet-container a.leaflet-popup-close-button {
+  color: hsl(var(--muted-foreground));
+}
+.dark .leaflet-container a.leaflet-popup-close-button:hover,
+.dark .leaflet-container a.leaflet-popup-close-button:focus {
+  color: hsl(var(--foreground));
+}
+.dark .leaflet-container .leaflet-tooltip {
+  background-color: hsl(var(--popover));
+  border-color: hsl(var(--border));
+  color: hsl(var(--popover-foreground));
+}
+.dark .leaflet-container .leaflet-tooltip-top:before { border-top-color: hsl(var(--border)); }
+.dark .leaflet-container .leaflet-tooltip-bottom:before { border-bottom-color: hsl(var(--border)); }
+.dark .leaflet-container .leaflet-tooltip-left:before { border-left-color: hsl(var(--border)); }
+.dark .leaflet-container .leaflet-tooltip-right:before { border-right-color: hsl(var(--border)); }
