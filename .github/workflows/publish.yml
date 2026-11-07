@@ -12,12 +12,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Gate: images are built and pushed only after the full test suite passes.
+  test:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test.yml
+
   # Two images x two architectures, each on a native runner. QEMU emulation is
   # not an option here (it crashes on `npm ci`), so amd64 and arm64 are built
   # on hardware that matches them and stitched into one manifest list by
   # `merge` below. amd64 is what the Linux home server runs; arm64 keeps an
   # Apple Silicon Mac working as a deployment target.
   build:
+    needs: test
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -134,9 +141,15 @@ jobs:
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+          tag_args=()
+          while read -r tag; do
+            tag_args+=(-t "$tag")
+          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          sources=()
+          for digest in *; do
+            sources+=("$IMAGE@sha256:$digest")
+          done
+          docker buildx imagetools create "${tag_args[@]}" "${sources[@]}"
 
       - name: Verify both architectures are present
         run: |
