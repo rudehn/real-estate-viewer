@@ -12,12 +12,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Gate: images are built and pushed only after the full test suite passes.
+  test:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test.yml
+
   # Two images x two architectures, each on a native runner. QEMU emulation is
   # not an option here (it crashes on `npm ci`), so amd64 and arm64 are built
   # on hardware that matches them and stitched into one manifest list by
   # `merge` below. amd64 is what the Linux home server runs; arm64 keeps an
   # Apple Silicon Mac working as a deployment target.
   build:
+    needs: test
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -134,9 +141,15 @@ jobs:
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+          tag_args=()
+          while read -r tag; do
+            tag_args+=(-t "$tag")
+          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          sources=()
+          for digest in *; do
+            sources+=("$IMAGE@sha256:$digest")
+          done
+          docker buildx imagetools create "${tag_args[@]}" "${sources[@]}"
 
       - name: Verify both architectures are present
         run: |
@@ -146,3 +159,29 @@ jobs:
                      | (index("amd64") != null) and (index("arm64") != null)' > /dev/null \
             || { echo "::error::manifest list for $ref is missing amd64 or arm64"; exit 1; }
           docker buildx imagetools inspect "$ref"
+
+  # Open a deploy PR in home-server for this commit's new images.
+  # Runs only on the default branch, after the last manifest is published.
+  trigger-deploy:
+    needs: merge
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Create deploy trigger token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.DEPLOY_TRIGGER_CLIENT_ID }}
+          private-key: ${{ secrets.DEPLOY_TRIGGER_PRIVATE_KEY }}
+          owner: rudehn
+          repositories: home-server
+
+      - name: Trigger the home-server deploy PR workflow
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh workflow run deploy-pr.yml -R rudehn/home-server \
+            -f stack=real-estate-viewer \
+            -f run_url="$RUN_URL"

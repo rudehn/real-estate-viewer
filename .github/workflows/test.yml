@@ -4,6 +4,8 @@ on:
   push:
     branches: [master, redesign]
   pull_request:
+  # Lets publish.yml gate its image build on this same suite.
+  workflow_call:
 
 jobs:
   backend:
